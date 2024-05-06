@@ -16,7 +16,6 @@ from nucleus_driver._download import Download
 class NucleusDriver:
 
     def __init__(self):
-
         self.messages = Messages()
         self.connection = Connection(messages=self.messages)
         self.logger = Logger(messages=self.messages, connection=self.connection)
@@ -85,7 +84,6 @@ class NucleusDriver:
             self.messages.write_message(f'{command} is not supported as a command in this application. Use the applications functionality instead')
 
         else:
-
             command_encoded = command.encode() + b'\r\n'
 
             self.commands._reset_buffer()

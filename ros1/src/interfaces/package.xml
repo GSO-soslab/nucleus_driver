@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>interfaces</name>
+  <version>0.0.0</version>
+  <description>interface for the nucleus_driver_ros2 pacakge</description>
+
+  <maintainer email="martin.johansen@nortekgroup.com">martin</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>message_generation</depend>
+  <depend>message_runtime</depend>  
+  
+</package>

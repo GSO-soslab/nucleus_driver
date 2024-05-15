@@ -17,7 +17,7 @@ class NucleusNode():
         # nucleus driver
         self.nucleus_driver = NucleusDriver()
 
-        # ros parameters
+        # ros parameters from yaml
         self.get_params()
 
         # ros subscribers/publishers and services
@@ -41,6 +41,7 @@ class NucleusNode():
     
 
     def get_params(self):
+
         self.nucleus_ip = rospy.get_param('~ip', '192.168.2.103')
         self.publish_custom = rospy.get_param('~publish_custom', 'False')
 
@@ -53,9 +54,9 @@ class NucleusNode():
         self.trigger_alti = rospy.get_param('trigger/altimeter', '0')
         self.trigger_cp = rospy.get_param('trigger/current_profile', '0')
 
-    def setup_ros(self):        
-        # self.connect_tcp_service = rospy.Service('nucleus_node/connect_tcp', ConnectTcp, self.connect_tcp_callback)
-        # self.connect_serial_service = rospy.Service('nucleus_node/connect_serial', ConnectSerial, self.connect_serial_callback)
+
+    def setup_ros(self):       
+
         self.disconnect_service = rospy.Service('nucleus_node/disconnect', Disconnect, self.disconnect_callback)
         self.start_service = rospy.Service('nucleus_node/start', Start, self.start_callback)
         self.start_service = rospy.Service('nucleus_node/field_calibration', StartFieldCalibration, self.start_field_calibration_callback)
@@ -96,6 +97,7 @@ class NucleusNode():
             rospy.loginfo(f'Failed to disconnect from Nucleus')
 
         return response
+    
 
     def start_callback(self, request):
 
@@ -174,7 +176,7 @@ class NucleusNode():
 
 
     def packet_callback(self, timer):
-        
+
         # Add header to common messages        
         header = Header()
         header.stamp = rospy.Time.now()

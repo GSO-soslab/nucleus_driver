@@ -3,9 +3,9 @@ import rospy
 from interfaces.srv import ConnectTcp, ConnectSerial, Disconnect, Start, Stop, StartFieldCalibration, Command
 from interfaces.msg import AHRS, Altimeter, BottomTrack, CurrentProfile, FieldCalibration, IMU, Magnetometer
 
-from std_msgs.msg import Float32
-from geometry_msgs.msg import Vector3
-from sensor_msgs.msg import Imu, FluidPressure, MagneticField
+from std_msgs.msg import Header
+from geometry_msgs.msg import Vector3Stamped
+from sensor_msgs.msg import Imu, FluidPressure, MagneticField, Range
 
 from nucleus_driver import NucleusDriver
 
@@ -14,10 +14,46 @@ class NucleusNode():
     def __init__(self):
         super().__init__()
 
+        # nucleus driver
         self.nucleus_driver = NucleusDriver()
-        self.nucleus_ip = '192.168.2.103'
-        self.publish_raw = False
 
+        # ros parameters
+        self.get_params()
+
+        # ros subscribers/publishers and services
+        self.setup_ros()
+
+        rospy.loginfo(f'Nucleus Node initiated')
+
+        # Connect TCP
+        self.nucleus_driver.set_tcp_configuration(host=self.nucleus_ip)
+        status = self.nucleus_driver.connect(connection_type='tcp')
+
+        if status:
+            rospy.loginfo(f'Connected through TCP with host: {self.nucleus_ip}')
+        else:
+            rospy.loginfo(f'Failed to connect with host: {self.nucleus_ip}')
+    
+        # self.nucleus_driver.send_command('SETTRIG,SRC="INTERNAL",FREQ=3, ALTI=0, CP=0')
+        self.trigger_cmd ="'" + 'SETTRIG,SRC="' + self.trigger_soruce + '",FREQ=' + self.trigger_freq + ',ALTI=' \
+                    + self.trigger_alti +  ',CP=' + self.trigger_cp + "'"
+        self.nucleus_driver.send_command(self.trigger_cmd)
+    
+
+    def get_params(self):
+        self.nucleus_ip = rospy.get_param('~ip', '192.168.2.103')
+        self.publish_custom = rospy.get_param('~publish_custom', 'False')
+
+        # ros configureation
+        self.frame_id = rospy.get_param('~frame_id', '/nucleus_dvl')
+
+        # Trigger
+        self.trigger_soruce = rospy.get_param('~trigger/source', 'INTERNAL')
+        self.trigger_freq = rospy.get_param('~trigger/freq', '1')
+        self.trigger_alti = rospy.get_param('trigger/altimeter', '0')
+        self.trigger_cp = rospy.get_param('trigger/current_profile', '0')
+
+    def setup_ros(self):        
         # self.connect_tcp_service = rospy.Service('nucleus_node/connect_tcp', ConnectTcp, self.connect_tcp_callback)
         # self.connect_serial_service = rospy.Service('nucleus_node/connect_serial', ConnectSerial, self.connect_serial_callback)
         self.disconnect_service = rospy.Service('nucleus_node/disconnect', Disconnect, self.disconnect_callback)
@@ -26,7 +62,8 @@ class NucleusNode():
         self.stop_service = rospy.Service('nucleus_node/stop', Stop, self.stop_callback)
         self.command_service = rospy.Service('nucleus_node/command', Command, self.command_callback)
 
-        if self.publish_raw:
+        # Custom Message Publishers
+        if self.publish_custom:
             self.ahrs_publisher = rospy.Publisher('nucleus_node/ahrs_packets', AHRS, queue_size=100)
             self.altimeter_publisher = rospy.Publisher('nucleus_node/altimeter_packets', Altimeter, queue_size=100)
             self.bottom_track_publisher = rospy.Publisher('nucleus_node/bottom_track_packets', BottomTrack, queue_size=100)
@@ -39,26 +76,14 @@ class NucleusNode():
         # Standard Message Publishers
         self.imu_publisher_common = rospy.Publisher('nucleus_node/imu_common', Imu, queue_size=100)
         self.pressure_publisher = rospy.Publisher('nucleus_node/pressure_common', FluidPressure, queue_size=100)
-        self.altitude_publisher = rospy.Publisher('nucleus_node/altitude_common', Float32, queue_size=100)
+        self.altitude_publisher = rospy.Publisher('nucleus_node/altitude_common', Range, queue_size=100)
         self.magnetic_publisher = rospy.Publisher('nucleus_node/magnetic_common', MagneticField, queue_size=100)
-        self.bottom_lock_velocity_publisher = rospy.Publisher('nucleus_node/bottom_lock_velocity_common', Vector3, queue_size=100)
+        self.bottom_lock_velocity_publisher = rospy.Publisher('nucleus_node/bottom_lock_velocity_common', Vector3Stamped, queue_size=100)
+        self.current_profile_velocity_publisher = rospy.Publisher('nucleus_node/current_profile_velocity_common', Vector3Stamped, queue_size=100)
 
         self.packet_timer = rospy.Timer(rospy.Duration(0.001), self.packet_callback)
 
-        rospy.loginfo(f'Nucleus Node initiated')
 
-        # Connect TCP
-        self.nucleus_driver.set_tcp_configuration(host=self.nucleus_ip)
-        status = self.nucleus_driver.connect(connection_type='tcp')
-
-        if status:
-            rospy.loginfo(f'Connected through TCP with host: {self.nucleus_ip}')
-        else:
-            rospy.loginfo(f'Failed to connect with host: {self.nucleus_ip}')
-
-    
-        self.nucleus_driver.send_command('SETTRIG,SRC="INTERNAL",FREQ=3, ALTI=0, CP=0')
-    
     def disconnect_callback(self, request):
 
         status = self.nucleus_driver.disconnect()
@@ -149,17 +174,21 @@ class NucleusNode():
 
 
     def packet_callback(self, timer):
-
+        
+        # Add header to common messages        
+        header = Header()
+        header.stamp = rospy.Time.now()
+        header.frame_id = self.frame_id
+        
         packet = self.nucleus_driver.read_packet()
 
         if packet is None:
             return
 
-        
+        ### AHRS ###
         if packet['id'] == 0xd2:
 
-            if self.publish_raw:
-
+            if self.publish_custom:
                 ahrs_packet = AHRS()
                 
                 ahrs_packet.posix_time = packet['flags.posixTime']
@@ -196,10 +225,10 @@ class NucleusNode():
 
                 self.ahrs_publisher.publish(ahrs_packet)
 
+        ### IMU ###
         if packet['id'] == 0x82:
 
-            if self.publish_raw:
-
+            if self.publish_custom:
                 imu_packet = IMU()
                 
                 imu_packet.posix_time = packet['flags.posixTime']
@@ -227,23 +256,24 @@ class NucleusNode():
 
                 self.imu_publisher.publish(imu_packet)   
             
-            if self.imu_publisher_common.get_num_connections() >= 0:
+            # common msg
+            # if self.imu_publisher_common.get_num_connections() >= 0:
+            imu_common_msg = Imu()
+            imu_common_msg.header = header
+            imu_common_msg.angular_velocity.x = packet['gyro.x']
+            imu_common_msg.angular_velocity.y = packet['gyro.y']
+            imu_common_msg.angular_velocity.z = packet['gyro.z']
+            imu_common_msg.linear_acceleration.x = packet['accelerometer.x']
+            imu_common_msg.linear_acceleration.y = packet['accelerometer.y']
+            imu_common_msg.linear_acceleration.z = packet['accelerometer.z']
 
-                imu_common_msg = Imu()
-                imu_common_msg.angular_velocity.x = packet['gyro.x']
-                imu_common_msg.angular_velocity.y = packet['gyro.y']
-                imu_common_msg.angular_velocity.z = packet['gyro.z']
-                imu_common_msg.linear_acceleration.x = packet['accelerometer.x']
-                imu_common_msg.linear_acceleration.y = packet['accelerometer.y']
-                imu_common_msg.linear_acceleration.z = packet['accelerometer.z']
+            self.imu_publisher_common.publish(imu_common_msg)
 
-                self.imu_publisher_common.publish(imu_common_msg)
-
-
+        
+        ### MAGNETOMETER ###
         if packet['id'] == 0x87:
 
-            if self.publish_raw:
-
+            if self.publish_custom:
                 mag_packet = Magnetometer()
                 
                 mag_packet.posix_time = packet['flags.posixTime']
@@ -260,20 +290,20 @@ class NucleusNode():
                 mag_packet.magnetometer_z = packet['magnetometer.z']
 
                 self.mag_publisher.publish(mag_packet)      
+            
+            # common msg
+            magnetic = MagneticField()
+            magnetic.header = header
+            magnetic.magnetic_field.x = packet['magnetometer.x']
+            magnetic.magnetic_field.y = packet['magnetometer.y']
+            magnetic.magnetic_field.z = packet['magnetometer.z']
 
-            if self.magnetic_publisher.get_num_connections() >= 0 :
-
-                magnetic = MagneticField()
-                magnetic.magnetic_field.x = packet['magnetometer.x']
-                magnetic.magnetic_field.y = packet['magnetometer.y']
-                magnetic.magnetic_field.z = packet['magnetometer.z']
-
-                self.magnetic_publisher.publish(magnetic)
+            self.magnetic_publisher.publish(magnetic)
         
+        ### BOTTOM TRACK ###
         if packet['id'] in [0xb4, 0xbe]:
 
-            if self.publish_raw:
-
+            if self.publish_custom:
                 bottom_track_packet = BottomTrack()
                 
                 bottom_track_packet.posix_time = packet['flags.posixTime']
@@ -329,18 +359,21 @@ class NucleusNode():
 
                 elif packet['id'] == 0xbe:
                     self.water_track_publisher.publish(bottom_track_packet)
-                
-            if packet['id'] == 0xb4:
-                bottom_lock_velocity = Vector3()
-                bottom_lock_velocity.x = packet['velocityX']
-                bottom_lock_velocity.y = packet['velocityY']
-                bottom_lock_velocity.z = packet['velocityZ']
+            
+            # common msg
+            # if packet['id'] == 0xb4:
+            bottom_lock_velocity = Vector3Stamped()
+            bottom_lock_velocity.header = header
+            bottom_lock_velocity.vector.x = packet['velocityX']
+            bottom_lock_velocity.vector.y = packet['velocityY']
+            bottom_lock_velocity.vector.z = packet['velocityZ']
 
-                self.bottom_lock_velocity_publisher.publish(bottom_lock_velocity)
+            self.bottom_lock_velocity_publisher.publish(bottom_lock_velocity)
 
+        ### ALTIMETER ###
         if packet['id'] == 0xaa:
 
-            if self.publish_raw:
+            if self.publish_custom:
                 
                 altimeter_packet = Altimeter()
                 
@@ -362,24 +395,39 @@ class NucleusNode():
 
                 self.altimeter_publisher.publish(altimeter_packet)
 
-            if self.pressure_publisher.get_num_connections() >= 0 :
+            # common msg
+            pressure = FluidPressure()
+            pressure.header = header
+            pressure.fluid_pressure = packet['pressure']
 
-                pressure = FluidPressure()
-                pressure.fluid_pressure = packet['pressure']
+            self.pressure_publisher.publish(pressure)
+    
+            altitude = Range()
+            altitude.header = header
+            altitude.min_range = -100.0
+            altitude.max_range = 100.0
+            altitude.range = packet['altimeterDistance']
 
-                self.pressure_publisher.publish(pressure)
-            
-            if self.altitude_publisher.get_num_connections() >= 0 :
-
-                altitude = Float32()
-                altitude.data = packet['altimeterDistance']
-
-                self.altitude_publisher.publish(altitude)
-            
+            self.altitude_publisher.publish(altitude)
+        
+        ### CURRENT PROFILE ###
         if packet['id'] == 0xc0:
 
-            if self.publish_raw:
+            velocity_data = list()
+            amplitude_data = list()
+            correlation_data = list()
 
+            for key in packet.keys():
+                if 'velocityData' in key:
+                    velocity_data.append(packet[key])
+
+                elif 'amplitudeData' in key:
+                    amplitude_data.append(packet[key])
+
+                elif 'correlationData' in key:
+                    correlation_data.append(packet[key])
+
+            if self.publish_custom:
                 current_profile_packet = CurrentProfile()
                 
                 current_profile_packet.posix_time = packet['flags.posixTime']
@@ -395,30 +443,24 @@ class NucleusNode():
                 current_profile_packet.number_of_cells = packet['numberOfCells']
                 current_profile_packet.ambiguity_velocity = packet['ambiguityVelocity']
 
-                velocity_data = list()
-                amplitude_data = list()
-                correlation_data = list()
-
-                for key in packet.keys():
-                    if 'velocityData' in key:
-                        velocity_data.append(packet[key])
-
-                    elif 'amplitudeData' in key:
-                        amplitude_data.append(packet[key])
-
-                    elif 'correlationData' in key:
-                        correlation_data.append(packet[key])
-
                 current_profile_packet.velocity_data = velocity_data
                 current_profile_packet.amplitude_data = amplitude_data
                 current_profile_packet.correlation_data = correlation_data
 
                 self.current_profile_publisher.publish(current_profile_packet)
 
+            # common msg
+            current_profile_velocity = Vector3Stamped()
+            current_profile_velocity.header = header
+            current_profile_velocity.vector.x = velocity_data[0]
+            current_profile_velocity.vector.y = velocity_data[1]
+            current_profile_velocity.vector.z = velocity_data[2]
+            self.current_profile_velocity_publisher.publish(current_profile_velocity)
+
+        ### FIELD CALIBRATION ###
         if packet['id'] == 0x8b:
             
-            if self.publish_raw:
-
+            if self.publish_custom:
                 field_calibration_packet = FieldCalibration()
                 
                 field_calibration_packet.posix_time = packet['flags.posixTime']
@@ -449,8 +491,8 @@ class NucleusNode():
 
 def main():
 
-    rospy.init_node('nucleus_node', anonymous=True)
-
+    rospy.init_node('nucleus_node')
+    
     try:
         rospy.loginfo("Started Nucleus Node ..")
         nucleus_node = NucleusNode()
@@ -468,7 +510,6 @@ def main():
             rospy.loginfo(f'stopped measurment: {status_stop}')
         else:
             rospy.loginfo(f'Not started measurment in the first place!')
-
 
         status_off = nucleus_node.nucleus_driver.disconnect()
     

@@ -57,30 +57,30 @@ class NucleusNode():
 
     def setup_ros(self):       
 
-        self.disconnect_service = rospy.Service('nucleus_node/disconnect', Disconnect, self.disconnect_callback)
-        self.start_service = rospy.Service('nucleus_node/start', Start, self.start_callback)
-        self.start_service = rospy.Service('nucleus_node/field_calibration', StartFieldCalibration, self.start_field_calibration_callback)
-        self.stop_service = rospy.Service('nucleus_node/stop', Stop, self.stop_callback)
-        self.command_service = rospy.Service('nucleus_node/command', Command, self.command_callback)
+        self.disconnect_service = rospy.Service('~disconnect', Disconnect, self.disconnect_callback)
+        self.start_service = rospy.Service('~start', Start, self.start_callback)
+        self.start_service = rospy.Service('~field_calibration', StartFieldCalibration, self.start_field_calibration_callback)
+        self.stop_service = rospy.Service('~stop', Stop, self.stop_callback)
+        self.command_service = rospy.Service('~command', Command, self.command_callback)
 
         # Custom Message Publishers
         if self.publish_custom:
-            self.ahrs_publisher = rospy.Publisher('nucleus_node/ahrs_packets', AHRS, queue_size=100)
-            self.altimeter_publisher = rospy.Publisher('nucleus_node/altimeter_packets', Altimeter, queue_size=100)
-            self.bottom_track_publisher = rospy.Publisher('nucleus_node/bottom_track_packets', BottomTrack, queue_size=100)
-            self.water_track_publisher = rospy.Publisher('nucleus_node/water_track_packets', BottomTrack, queue_size=100)
-            self.current_profile_publisher = rospy.Publisher('nucleus_node/current_profile_packets', CurrentProfile, queue_size=100)
-            self.field_calibration_publisher = rospy.Publisher('nucleus_node/field_calibration_packets', FieldCalibration, queue_size=100)
-            self.imu_publisher = rospy.Publisher('nucleus_node/imu_packets', IMU, queue_size=100)
-            self.mag_publisher = rospy.Publisher('nucleus_node/magnetometer_packets', Magnetometer, queue_size=100)
+            self.ahrs_publisher = rospy.Publisher('~ahrs_packets', AHRS, queue_size=100)
+            self.altimeter_publisher = rospy.Publisher('~altimeter_packets', Altimeter, queue_size=100)
+            self.bottom_track_publisher = rospy.Publisher('~bottom_track_packets', BottomTrack, queue_size=100)
+            self.water_track_publisher = rospy.Publisher('~water_track_packets', BottomTrack, queue_size=100)
+            self.current_profile_publisher = rospy.Publisher('~current_profile_packets', CurrentProfile, queue_size=100)
+            self.field_calibration_publisher = rospy.Publisher('~field_calibration_packets', FieldCalibration, queue_size=100)
+            self.imu_publisher = rospy.Publisher('~imu_packets', IMU, queue_size=100)
+            self.mag_publisher = rospy.Publisher('~magnetometer_packets', Magnetometer, queue_size=100)
         
         # Standard Message Publishers
-        self.imu_publisher_common = rospy.Publisher('nucleus_node/imu_common', Imu, queue_size=100)
-        self.pressure_publisher = rospy.Publisher('nucleus_node/pressure_common', FluidPressure, queue_size=100)
-        self.altitude_publisher = rospy.Publisher('nucleus_node/altitude_common', Range, queue_size=100)
-        self.magnetic_publisher = rospy.Publisher('nucleus_node/magnetic_common', MagneticField, queue_size=100)
-        self.bottom_lock_velocity_publisher = rospy.Publisher('nucleus_node/bottom_lock_velocity_common', Vector3Stamped, queue_size=100)
-        self.current_profile_velocity_publisher = rospy.Publisher('nucleus_node/current_profile_velocity_common', Vector3Stamped, queue_size=100)
+        self.imu_publisher_common = rospy.Publisher('~imu_common', Imu, queue_size=100)
+        self.pressure_publisher = rospy.Publisher('~pressure_common', FluidPressure, queue_size=100)
+        self.altitude_publisher = rospy.Publisher('~altitude_common', Range, queue_size=100)
+        self.magnetic_publisher = rospy.Publisher('~magnetic_common', MagneticField, queue_size=100)
+        self.bottom_lock_velocity_publisher = rospy.Publisher('~bottom_lock_velocity_common', Vector3Stamped, queue_size=100)
+        self.current_profile_velocity_publisher = rospy.Publisher('~current_profile_velocity_common', Vector3Stamped, queue_size=100)
 
         self.packet_timer = rospy.Timer(rospy.Duration(0.001), self.packet_callback)
 

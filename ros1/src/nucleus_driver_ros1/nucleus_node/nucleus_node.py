@@ -4,7 +4,7 @@ from interfaces.srv import ConnectTcp, ConnectSerial, Disconnect, Start, Stop, S
 from interfaces.msg import AHRS, Altimeter, BottomTrack, CurrentProfile, FieldCalibration, IMU, Magnetometer
 
 from std_msgs.msg import Header
-from geometry_msgs.msg import Vector3Stamped
+from geometry_msgs.msg import Vector3Stamped, TwistWithCovarianceStamped
 from sensor_msgs.msg import Imu, FluidPressure, MagneticField, Range
 
 from nucleus_driver import NucleusDriver
@@ -75,11 +75,13 @@ class NucleusNode():
             self.mag_publisher = rospy.Publisher('~magnetometer_packets', Magnetometer, queue_size=100)
         
         # Standard Message Publishers
-        self.imu_publisher_common = rospy.Publisher('~imu_common', Imu, queue_size=100)
-        self.pressure_publisher = rospy.Publisher('~pressure_common', FluidPressure, queue_size=100)
-        self.altitude_publisher = rospy.Publisher('~altitude_common', Range, queue_size=100)
-        self.magnetic_publisher = rospy.Publisher('~magnetic_common', MagneticField, queue_size=100)
-        self.bottom_lock_velocity_publisher = rospy.Publisher('~bottom_lock_velocity_common', Vector3Stamped, queue_size=100)
+        self.imu_publisher_common = rospy.Publisher('~imu', Imu, queue_size=100)
+        self.pressure_publisher = rospy.Publisher('~pressure', FluidPressure, queue_size=100)
+        self.altitude_publisher = rospy.Publisher('~altitude', Range, queue_size=100)
+        self.magnetic_publisher = rospy.Publisher('~mag', MagneticField, queue_size=100)
+        # self.bottom_lock_velocity_publisher = rospy.Publisher('~bottom_lock_velocity_common', Vector3Stamped, queue_size=100)
+        self.dvl_twist_publish = rospy.Publisher('~dv/twist', TwistWithCovarianceStamped, queue_size=100)
+
         self.current_profile_velocity_publisher = rospy.Publisher('~current_profile_velocity_common', Vector3Stamped, queue_size=100)
 
         self.packet_timer = rospy.Timer(rospy.Duration(0.001), self.packet_callback)
@@ -364,14 +366,23 @@ class NucleusNode():
             
             # common msg
             # if packet['id'] == 0xb4:
-            bottom_lock_velocity = Vector3Stamped()
-            bottom_lock_velocity.header = header
-            bottom_lock_velocity.vector.x = packet['velocityX']
-            bottom_lock_velocity.vector.y = packet['velocityY']
-            bottom_lock_velocity.vector.z = packet['velocityZ']
+            # bottom_lock_velocity = Vector3Stamped()
+            # bottom_lock_velocity.header = header
+            # bottom_lock_velocity.vector.x = packet['velocityX']
+            # bottom_lock_velocity.vector.y = packet['velocityY']
+            # bottom_lock_velocity.vector.z = packet['velocityZ']
 
-            self.bottom_lock_velocity_publisher.publish(bottom_lock_velocity)
+            # self.bottom_lock_velocity_publisher.publish(bottom_lock_velocity)
 
+            # twist msg
+            if(packet['status.beam1VelocityValid']==1 & packet['status.beam2VelocityValid']==1 & packet['status.beam3VelocityValid']==1):
+                bottom_lock_velocity = TwistWithCovarianceStamped()
+                bottom_lock_velocity.header = header
+                bottom_lock_velocity.twist.twist.linear.x = packet['velocityX']
+                bottom_lock_velocity.twist.twist.linear.y = packet['velocityX']
+                bottom_lock_velocity.twist.twist.linear.z = packet['velocityX']
+
+                self.current_profile_velocity_publisher(bottom_lock_velocity)
         ### ALTIMETER ###
         if packet['id'] == 0xaa:
 

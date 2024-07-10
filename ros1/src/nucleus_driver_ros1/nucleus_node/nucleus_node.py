@@ -382,7 +382,7 @@ class NucleusNode():
                 bottom_lock_velocity.twist.twist.linear.y = packet['velocityX']
                 bottom_lock_velocity.twist.twist.linear.z = packet['velocityX']
 
-                self.current_profile_velocity_publisher(bottom_lock_velocity)
+                self.dvl_twist_publish.publish(bottom_lock_velocity)
         ### ALTIMETER ###
         if packet['id'] == 0xaa:
 

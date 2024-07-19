@@ -379,8 +379,8 @@ class NucleusNode():
                 bottom_lock_velocity = TwistWithCovarianceStamped()
                 bottom_lock_velocity.header = header
                 bottom_lock_velocity.twist.twist.linear.x = packet['velocityX']
-                bottom_lock_velocity.twist.twist.linear.y = packet['velocityX']
-                bottom_lock_velocity.twist.twist.linear.z = packet['velocityX']
+                bottom_lock_velocity.twist.twist.linear.y = packet['velocityY']
+                bottom_lock_velocity.twist.twist.linear.z = packet['velocityZ']
 
                 self.dvl_twist_publish.publish(bottom_lock_velocity)
         ### ALTIMETER ###

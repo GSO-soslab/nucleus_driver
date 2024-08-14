@@ -43,8 +43,8 @@ class NucleusNode():
     def get_params(self):
 
         self.nucleus_ip = rospy.get_param('~ip', '192.168.2.103')
-        self.publish_custom = rospy.get_param('~publish_custom', 'False')
-
+        self.publish_custom = rospy.get_param('~publish_custom', 'False').lower() == 'true'
+        
         # ros configureation
         self.frame_id = rospy.get_param('~frame_id', '/nucleus_dvl')
 
@@ -80,7 +80,7 @@ class NucleusNode():
         self.altitude_publisher = rospy.Publisher('~altitude', Range, queue_size=100)
         self.magnetic_publisher = rospy.Publisher('~mag', MagneticField, queue_size=100)
         # self.bottom_lock_velocity_publisher = rospy.Publisher('~bottom_lock_velocity_common', Vector3Stamped, queue_size=100)
-        self.dvl_twist_publish = rospy.Publisher('~dv/twist', TwistWithCovarianceStamped, queue_size=100)
+        self.dvl_twist_publish = rospy.Publisher('~dvl/twist', TwistWithCovarianceStamped, queue_size=100)
 
         self.current_profile_velocity_publisher = rospy.Publisher('~current_profile_velocity_common', Vector3Stamped, queue_size=100)
 
@@ -354,7 +354,7 @@ class NucleusNode():
                 bottom_track_packet.velocity_z = packet['velocityZ']
                 bottom_track_packet.fom_x = packet['fomX']
                 bottom_track_packet.fom_y = packet['fomY']
-                bottom_track_packet.fom_z = packet['fomX']
+                bottom_track_packet.fom_z = packet['fomZ']
                 bottom_track_packet.dt_xyz = packet['dtXYZ']
                 bottom_track_packet.time_vel_xyz = packet['timeVelXYZ']
 
@@ -375,14 +375,30 @@ class NucleusNode():
             # self.bottom_lock_velocity_publisher.publish(bottom_lock_velocity)
 
             # twist msg
-            if(packet['status.beam1VelocityValid']==1 & packet['status.beam2VelocityValid']==1 & packet['status.beam3VelocityValid']==1):
-                bottom_lock_velocity = TwistWithCovarianceStamped()
-                bottom_lock_velocity.header = header
-                bottom_lock_velocity.twist.twist.linear.x = packet['velocityX']
-                bottom_lock_velocity.twist.twist.linear.y = packet['velocityY']
-                bottom_lock_velocity.twist.twist.linear.z = packet['velocityZ']
+            if packet['id'] == 0xb4:
+                if(packet['status.beam1VelocityValid']==1 & packet['status.beam2VelocityValid']==1 & packet['status.beam3VelocityValid']==1):
+                    bottom_lock_velocity = TwistWithCovarianceStamped()
+                    bottom_lock_velocity.header = header
+                    bottom_lock_velocity.twist.twist.linear.x = packet['velocityX']
+                    bottom_lock_velocity.twist.twist.linear.y = packet['velocityY']
+                    bottom_lock_velocity.twist.twist.linear.z = packet['velocityZ']
 
-                self.dvl_twist_publish.publish(bottom_lock_velocity)
+                    bottom_lock_velocity.twist.covariance[0] = packet['fomX']
+                    bottom_lock_velocity.twist.covariance[7] = packet['fomY']
+                    bottom_lock_velocity.twist.covariance[14] = packet['fomZ']
+
+                    # bottom_lock_velocity.twist.covariance[18] = msg.report.covariance[0]
+                    # bottom_lock_velocity.twist.covariance[19] = msg.report.covariance[1]
+                    # bottom_lock_velocity.twist.covariance[20] = msg.report.covariance[2]
+                    # bottom_lock_velocity.twist.covariance[24] = msg.report.covariance[3]
+                    # bottom_lock_velocity.twist.covariance[25] = msg.report.covariance[4]
+                    # bottom_lock_velocity.twist.covariance[26] = msg.report.covariance[5]
+                    # bottom_lock_velocity.twist.covariance[30] = msg.report.covariance[6]
+                    # bottom_lock_velocity.twist.covariance[31] = msg.report.covariance[7]
+                    # bottom_lock_velocity.twist.covariance[32] = msg.report.covariance[8]
+
+                    self.dvl_twist_publish.publish(bottom_lock_velocity)
+
         ### ALTIMETER ###
         if packet['id'] == 0xaa:
 

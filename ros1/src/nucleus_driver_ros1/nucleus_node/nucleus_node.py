@@ -383,19 +383,9 @@ class NucleusNode():
                     bottom_lock_velocity.twist.twist.linear.y = packet['velocityY']
                     bottom_lock_velocity.twist.twist.linear.z = packet['velocityZ']
 
-                    bottom_lock_velocity.twist.covariance[0] = packet['fomX']
-                    bottom_lock_velocity.twist.covariance[7] = packet['fomY']
-                    bottom_lock_velocity.twist.covariance[14] = packet['fomZ']
-
-                    # bottom_lock_velocity.twist.covariance[18] = msg.report.covariance[0]
-                    # bottom_lock_velocity.twist.covariance[19] = msg.report.covariance[1]
-                    # bottom_lock_velocity.twist.covariance[20] = msg.report.covariance[2]
-                    # bottom_lock_velocity.twist.covariance[24] = msg.report.covariance[3]
-                    # bottom_lock_velocity.twist.covariance[25] = msg.report.covariance[4]
-                    # bottom_lock_velocity.twist.covariance[26] = msg.report.covariance[5]
-                    # bottom_lock_velocity.twist.covariance[30] = msg.report.covariance[6]
-                    # bottom_lock_velocity.twist.covariance[31] = msg.report.covariance[7]
-                    # bottom_lock_velocity.twist.covariance[32] = msg.report.covariance[8]
+                    bottom_lock_velocity.twist.covariance[0] = packet['fomX'] ** 2
+                    bottom_lock_velocity.twist.covariance[7] = packet['fomY'] ** 2
+                    bottom_lock_velocity.twist.covariance[14] = packet['fomZ'] ** 2
 
                     self.dvl_twist_publish.publish(bottom_lock_velocity)
 

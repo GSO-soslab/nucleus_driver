@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 from threading import Thread
 from rclpy._rclpy_pybind11 import RCLError
+import math
 
 from interfaces.srv import (
     ConnectTcp,
@@ -24,6 +25,12 @@ from interfaces.msg import (
     Magnetometer,
 )
 
+# Standard ROS2 message imports
+from std_msgs.msg import Float32
+from sensor_msgs.msg import Imu, MagneticField, FluidPressure, Temperature, NavSatFix
+from geometry_msgs.msg import Vector3Stamped
+from nav_msgs.msg import Odometry
+
 from nucleus_driver import NucleusDriver
 
 
@@ -31,6 +38,28 @@ class NucleusNode(Node):
 
     def __init__(self):
         super().__init__("nucleus_node")
+
+        # --- Parameter Declaration ---
+        self.declare_parameter('frame_id', 'nucleus_link')
+        self.declare_parameter('connection_type', 'none')
+        self.declare_parameter('tcp_ip', '')
+        self.declare_parameter('tcp_password', 'nortek')
+        self.declare_parameter('serial_port', '')
+        self.declare_parameter('auto_connect', False)
+        self.declare_parameter('auto_start', False)
+        self.declare_parameter('sensor_configs', [])
+
+        # --- Get Parameters ---
+        self.frame_id = self.get_parameter('frame_id').get_parameter_value().string_value
+        self._connection_type = self.get_parameter('connection_type').get_parameter_value().string_value
+        self._tcp_ip = self.get_parameter('tcp_ip').get_parameter_value().string_value
+        self._tcp_password = self.get_parameter('tcp_password').get_parameter_value().string_value
+        self._serial_port = self.get_parameter('serial_port').get_parameter_value().string_value
+        self._auto_connect = self.get_parameter('auto_connect').get_parameter_value().bool_value
+        self._auto_start = self.get_parameter('auto_start').get_parameter_value().bool_value
+        self._sensor_configs = self.get_parameter('sensor_configs').get_parameter_value().string_array_value
+        
+        self.get_logger().info(f"Using frame_id '{self.frame_id}' for standard messages.")
 
         self.nucleus_driver = NucleusDriver()
 
@@ -51,54 +80,112 @@ class NucleusNode(Node):
         self.imu_publisher = self.create_publisher(IMU, "nucleus_node/imu_packets", 100)
         self.ins_publisher = self.create_publisher(INS, "nucleus_node/ins_packets", 100)
         self.mag_publisher = self.create_publisher(Magnetometer, "nucleus_node/magnetometer_packets", 100)
+        
+        # Publishers for standard ROS2 messages
+        self.altimeter_publisher = self.create_publisher(Float32, "nucleus_node/altimeter_common", 100)
+        self.pressure_publisher = self.create_publisher(FluidPressure, "nucleus_node/pressure_common", 100)
+        self.temperature_publisher = self.create_publisher(Temperature, "nucleus_node/temperature_common", 100)
+        self.bottom_track_velocity_publisher = self.create_publisher(Vector3Stamped, "nucleus_node/bottom_lock_velocity_common", 100)
+        self.water_track_velocity_publisher = self.create_publisher(Vector3Stamped, "nucleus_node/water_track_velocity_common", 100)
+        self.imu_common_publisher = self.create_publisher(Imu, "nucleus_node/imu_common", 100)
+        self.mag_common_publisher = self.create_publisher(MagneticField, "nucleus_node/magnetic_common", 100)
+        self.navsatfix_publisher = self.create_publisher(NavSatFix, "nucleus_node/navsatfix_common", 100)
+        self.odometry_publisher = self.create_publisher(Odometry, "nucleus_node/odometry_common", 100)
 
-        self.start_thread_timer = self.create_timer(0.1, self.start_thread) # This ensures that the thread is started after the node is initialized and rcplpy.spin() is called
+        # This timer ensures that the auto-connect logic runs after the node is fully initialized
+        self.init_timer = self.create_timer(0.1, self.initialize_sensor_connection)
 
         self._thread_running = False
         self.packet_thread = Thread(target=self.packet_handling)
 
         self.get_logger().info("Nucleus Node initiated")
 
-    def start_thread(self):
-        if not self._thread_running:
-            self.start()
-            self.start_thread_timer.cancel()
+    def initialize_sensor_connection(self):
+        """
+        Attempts to connect and configure the sensor based on launch parameters.
+        This method is called once by a timer after node initialization.
+        """
+        self.init_timer.cancel()
+
+        if self._auto_connect:
+            self.get_logger().info("Auto-connect is enabled. Attempting to connect to sensor...")
+            status = False
+            if self._connection_type == 'tcp':
+                if not self._tcp_ip:
+                    self.get_logger().error("Connection type is 'tcp' but 'tcp_ip' parameter is not set.")
+                else:
+                    status = self._connect_tcp(self._tcp_ip, self._tcp_password)
+            elif self._connection_type == 'serial':
+                if not self._serial_port:
+                    self.get_logger().error("Connection type is 'serial' but 'serial_port' parameter is not set.")
+                else:
+                    status = self._connect_serial(self._serial_port)
+            elif self._connection_type != 'none':
+                self.get_logger().warn(f"Invalid connection_type '{self._connection_type}'. Skipping auto-connect.")
+            
+            if status:
+                self.get_logger().info("Successfully connected to sensor.")
+                
+                # Send configuration commands
+                if self._sensor_configs:
+                    self.get_logger().info("Sending configuration commands...")
+                    for cmd in self._sensor_configs:
+                        reply_bytes = self.nucleus_driver.send_command(command=cmd)
+                        try:
+                            reply_str = "".join(r.decode() for r in reply_bytes).strip()
+                            self.get_logger().info(f"Command '{cmd}' -> Reply: '{reply_str}'")
+                        except Exception as e:
+                            self.get_logger().error(f"Failed to decode reply for command '{cmd}': {e}")
+
+                # Auto-start measurement
+                if self._auto_start:
+                    self.get_logger().info("Auto-start is enabled. Starting measurement.")
+                    reply_bytes = self.nucleus_driver.start_measurement()
+                    try:
+                        reply_str = reply_bytes[0].decode().strip()
+                        self.get_logger().info(f"Start measurement reply: '{reply_str}'")
+                    except Exception as e:
+                        self.get_logger().error(f"Failed to decode reply from start command: {e}")
+        else:
+            self.get_logger().info("Auto-connect is disabled. Waiting for service calls.")
+
+        # Start the packet handling thread regardless
+        self.start()
 
     def start(self):
         self._thread_running = True
         self.packet_thread.start()
-        self.get_logger().info("Nucleus Node started")
+        self.get_logger().info("Nucleus Node packet handler started")
 
     def stop(self):
         self._thread_running = False
-        self.packet_thread.join(timeout=2)  # 1 second more than the timeout of the read_packet method
+        if self.packet_thread.is_alive():
+            self.packet_thread.join(timeout=2)
+
+    def _connect_tcp(self, host, password):
+        self.nucleus_driver.set_tcp_configuration(host=host)
+        status = self.nucleus_driver.connect(connection_type="tcp", password=password)
+        if status:
+            self.get_logger().info(f"Connected through TCP with host: {host}")
+        else:
+            self.get_logger().error(f"Failed to connect with host: {host}")
+        return status
+
+    def _connect_serial(self, port):
+        self.nucleus_driver.set_serial_configuration(port=port)
+        status = self.nucleus_driver.connect(connection_type="serial")
+        if status:
+            self.get_logger().info(f"Connected through serial with serial port: {port}")
+        else:
+            self.get_logger().error(f"Failed to connect through serial port: {port}")
+        return status
 
     def connect_tcp_callback(self, request, response):
-
-        self.nucleus_driver.set_tcp_configuration(host=request.host)
-        status = self.nucleus_driver.connect(connection_type="tcp", password=request.password)
-
-        if status:
-            self.get_logger().info(f"Connected through TCP with host: {request.host}")
-        else:
-            self.get_logger().info(f"Failed to connect with host: {request.host}")
-
-        response.status = status
-
+        response.status = self._connect_tcp(request.host, request.password)
         return response
 
     def connect_serial_callback(self, request, response):
-
-        self.nucleus_driver.set_serial_configuration(port=request.serial_port)
-        status = self.nucleus_driver.connect(connection_type="serial")
-
-        if status:
-            self.get_logger().info(f"connected through serial with serial port: {request.serial_port}")
-        else:
-            self.get_logger().info(f"failed to connect through serial port: {request.serial_port}")
-
-        response.status = status
-
+        response.status = self._connect_serial(request.serial_port)
         return response
 
     def disconnect_callback(self, request, response):
@@ -198,32 +285,26 @@ class NucleusNode(Node):
                 continue
 
             system_timestamp = self.get_clock().now()
+            ros_timestamp = system_timestamp.to_msg()
 
             if packet["id"] == 0xD2:
 
                 ahrs_packet = AHRS()
-
-                ahrs_packet.system_timestamp = system_timestamp.to_msg()
-
+                ahrs_packet.system_timestamp = ros_timestamp
                 ahrs_packet.posix_time = packet["flags.posixTime"]
                 ahrs_packet.timestamp = packet["timeStamp"]
                 ahrs_packet.microseconds = packet["microSeconds"]
-
                 ahrs_packet.serial_number = packet["serialNumber"]
                 ahrs_packet.operation_mode = packet["operationMode"]
-
                 ahrs_packet.fom_ahrs = packet["fomAhrs"]
                 ahrs_packet.fom_fc1 = packet["fomFc1"]
-
                 ahrs_packet.roll = packet["ahrsData.roll"]
                 ahrs_packet.pitch = packet["ahrsData.pitch"]
                 ahrs_packet.heading = packet["ahrsData.heading"]
-
                 ahrs_packet.quaternion_w = packet["ahrsData.quaternionW"]
                 ahrs_packet.quaternion_x = packet["ahrsData.quaternionX"]
                 ahrs_packet.quaternion_y = packet["ahrsData.quaternionY"]
                 ahrs_packet.quaternion_z = packet["ahrsData.quaternionZ"]
-
                 ahrs_packet.rotation_matrix_0 = packet["ahrsData.rotationMatrix_0"]
                 ahrs_packet.rotation_matrix_1 = packet["ahrsData.rotationMatrix_1"]
                 ahrs_packet.rotation_matrix_2 = packet["ahrsData.rotationMatrix_2"]
@@ -233,42 +314,56 @@ class NucleusNode(Node):
                 ahrs_packet.rotation_matrix_6 = packet["ahrsData.rotationMatrix_6"]
                 ahrs_packet.rotation_matrix_7 = packet["ahrsData.rotationMatrix_7"]
                 ahrs_packet.rotation_matrix_8 = packet["ahrsData.rotationMatrix_8"]
-
                 ahrs_packet.declination = packet["declination"]
                 ahrs_packet.depth = packet["depth"]
 
                 try:
                     self.ahrs_publisher.publish(ahrs_packet)
+
+                    # Publish standard sensor_msgs/Imu with orientation
+                    imu_msg = Imu()
+                    imu_msg.header.stamp = ros_timestamp
+                    imu_msg.header.frame_id = self.frame_id
+                    
+                    imu_msg.orientation.w = packet["ahrsData.quaternionW"]
+                    imu_msg.orientation.x = packet["ahrsData.quaternionX"]
+                    imu_msg.orientation.y = packet["ahrsData.quaternionY"]
+                    imu_msg.orientation.z = packet["ahrsData.quaternionZ"]
+                    
+                    # Indicate that orientation is available
+                    imu_msg.orientation_covariance[0] = 0.01 
+                    imu_msg.orientation_covariance[4] = 0.01
+                    imu_msg.orientation_covariance[8] = 0.01
+                    
+                    # Indicate no angular velocity or linear acceleration
+                    imu_msg.angular_velocity_covariance[0] = -1.0
+                    imu_msg.linear_acceleration_covariance[0] = -1.0
+
+                    self.imu_common_publisher.publish(imu_msg)
+
                 except RCLError:
                     pass
                 except Exception as e:
-                    self.get_logger().error(f"Failed to publish AHRS packet: {e}")
+                    self.get_logger().error(f"Failed to publish AHRS or Imu packet: {e}")
 
             elif packet["id"] == 0xDC:
 
                 ins_packet = INS()
-
-                ins_packet.system_timestamp = system_timestamp.to_msg()
-
+                ins_packet.system_timestamp = ros_timestamp
                 ins_packet.posix_time = packet["flags.posixTime"]
                 ins_packet.timestamp = packet["timeStamp"]
                 ins_packet.microseconds = packet["microSeconds"]
-
                 ins_packet.serial_number = packet["serialNumber"]
                 ins_packet.operation_mode = packet["operationMode"]
-
                 ins_packet.fom_ahrs = packet["fomAhrs"]
                 ins_packet.fom_fc1 = packet["fomFc1"]
-
                 ins_packet.roll = packet["ahrsData.roll"]
                 ins_packet.pitch = packet["ahrsData.pitch"]
                 ins_packet.heading = packet["ahrsData.heading"]
-
                 ins_packet.quaternion_w = packet["ahrsData.quaternionW"]
                 ins_packet.quaternion_x = packet["ahrsData.quaternionX"]
                 ins_packet.quaternion_y = packet["ahrsData.quaternionY"]
                 ins_packet.quaternion_z = packet["ahrsData.quaternionZ"]
-
                 ins_packet.rotation_matrix_0 = packet["ahrsData.rotationMatrix_0"]
                 ins_packet.rotation_matrix_1 = packet["ahrsData.rotationMatrix_1"]
                 ins_packet.rotation_matrix_2 = packet["ahrsData.rotationMatrix_2"]
@@ -278,10 +373,8 @@ class NucleusNode(Node):
                 ins_packet.rotation_matrix_6 = packet["ahrsData.rotationMatrix_6"]
                 ins_packet.rotation_matrix_7 = packet["ahrsData.rotationMatrix_7"]
                 ins_packet.rotation_matrix_8 = packet["ahrsData.rotationMatrix_8"]
-
                 ins_packet.declination = packet["declination"]
                 ins_packet.depth = packet["depth"]
-
                 ins_packet.fom_ins = packet["fomIns"]
                 ins_packet.lat_long_is_valid = packet["statusIns.latLonIsValid"]
                 ins_packet.course_over_ground = packet["courseOverGround"]
@@ -306,21 +399,56 @@ class NucleusNode(Node):
 
                 try:
                     self.ins_publisher.publish(ins_packet)
+
+                    # Publish standard sensor_msgs/NavSatFix
+                    if packet["statusIns.latLonIsValid"]:
+                        nav_msg = NavSatFix()
+                        nav_msg.header.stamp = ros_timestamp
+                        nav_msg.header.frame_id = "wgs84"
+                        nav_msg.status.status = NavSatFix.STATUS_FIX
+                        nav_msg.status.service = NavSatFix.SERVICE_GPS
+                        nav_msg.latitude = packet["latitude"]
+                        nav_msg.longitude = packet["longitude"]
+                        nav_msg.altitude = packet["altitude"]
+                        variance = (packet["fomAhrs"] * packet["fomAhrs"])
+                        nav_msg.position_covariance[0] = variance
+                        nav_msg.position_covariance[4] = variance
+                        nav_msg.position_covariance[8] = variance * 4.0
+                        nav_msg.position_covariance_type = NavSatFix.COVARIANCE_TYPE_DIAGONAL_KNOWN
+                        self.navsatfix_publisher.publish(nav_msg)
+
+                    # Publish standard nav_msgs/Odometry
+                    odom_msg = Odometry()
+                    odom_msg.header.stamp = ros_timestamp
+                    odom_msg.header.frame_id = "odom"
+                    odom_msg.child_frame_id = self.frame_id
+                    odom_msg.pose.pose.position.x = packet["positionFrameX"]
+                    odom_msg.pose.pose.position.y = packet["positionFrameY"]
+                    odom_msg.pose.pose.position.z = packet["positionFrameZ"]
+                    odom_msg.pose.pose.orientation.w = packet["ahrsData.quaternionW"]
+                    odom_msg.pose.pose.orientation.x = packet["ahrsData.quaternionX"]
+                    odom_msg.pose.pose.orientation.y = packet["ahrsData.quaternionY"]
+                    odom_msg.pose.pose.orientation.z = packet["ahrsData.quaternionZ"]
+                    odom_msg.twist.twist.linear.x = packet["velocityNucleusX"]
+                    odom_msg.twist.twist.linear.y = packet["velocityNucleusY"]
+                    odom_msg.twist.twist.linear.z = packet["velocityNucleusZ"]
+                    odom_msg.twist.twist.angular.x = math.radians(packet["turnRateX"])
+                    odom_msg.twist.twist.angular.y = math.radians(packet["turnRateY"])
+                    odom_msg.twist.twist.angular.z = math.radians(packet["turnRateZ"])
+                    self.odometry_publisher.publish(odom_msg)
+
                 except RCLError:
                     pass
                 except Exception as e:
-                    self.get_logger().error(f"Failed to publish INS packet: {e}")
+                    self.get_logger().error(f"Failed to publish INS-derived packets: {e}")
 
             elif packet["id"] == 0x82:
 
                 imu_packet = IMU()
-
-                imu_packet.system_timestamp = system_timestamp.to_msg()
-
+                imu_packet.system_timestamp = ros_timestamp
                 imu_packet.posix_time = packet["flags.posixTime"]
                 imu_packet.timestamp = packet["timeStamp"]
                 imu_packet.microseconds = packet["microSeconds"]
-
                 imu_packet.is_valid = packet["status.isValid"]
                 imu_packet.has_data_path_overrun = packet["status.hasDataPathOverrun"]
                 imu_packet.has_flash_update_failure = packet["status.hasFlashUpdateFailure"]
@@ -331,7 +459,6 @@ class NucleusNode(Node):
                 imu_packet.has_gyro_1_failure = packet["status.hasGyro1Failure"]
                 imu_packet.has_gyro_2_failure = packet["status.hasGyro2Failure"]
                 imu_packet.has_accelerometer_failure = packet["status.hasAccelerometerFailure"]
-
                 imu_packet.accelerometer_x = packet["accelerometer.x"]
                 imu_packet.accelerometer_y = packet["accelerometer.y"]
                 imu_packet.accelerometer_z = packet["accelerometer.z"]
@@ -342,6 +469,29 @@ class NucleusNode(Node):
 
                 try:
                     self.imu_publisher.publish(imu_packet)
+
+                    # Publish standard sensor_msgs/Imu with accel and gyro
+                    imu_msg = Imu()
+                    imu_msg.header.stamp = ros_timestamp
+                    imu_msg.header.frame_id = self.frame_id
+                    imu_msg.linear_acceleration.x = packet["accelerometer.x"]
+                    imu_msg.linear_acceleration.y = packet["accelerometer.y"]
+                    imu_msg.linear_acceleration.z = packet["accelerometer.z"]
+                    imu_msg.angular_velocity.x = math.radians(packet["gyro.x"])
+                    imu_msg.angular_velocity.y = math.radians(packet["gyro.y"])
+                    imu_msg.angular_velocity.z = math.radians(packet["gyro.z"])
+                    
+                    # Indicate no orientation
+                    imu_msg.orientation_covariance[0] = -1.0
+                    
+                    imu_msg.angular_velocity_covariance[0] = 0.01
+                    imu_msg.angular_velocity_covariance[4] = 0.01
+                    imu_msg.angular_velocity_covariance[8] = 0.01
+                    imu_msg.linear_acceleration_covariance[0] = 0.01
+                    imu_msg.linear_acceleration_covariance[4] = 0.01
+                    imu_msg.linear_acceleration_covariance[8] = 0.01
+                    self.imu_common_publisher.publish(imu_msg)
+
                 except RCLError:
                     pass
                 except Exception as e:
@@ -350,24 +500,33 @@ class NucleusNode(Node):
             elif packet["id"] == 0x87:
 
                 mag_packet = Magnetometer()
-
-                mag_packet.system_timestamp = system_timestamp.to_msg()
-
+                mag_packet.system_timestamp = ros_timestamp
                 mag_packet.posix_time = packet["flags.posixTime"]
                 mag_packet.timestamp = packet["timeStamp"]
                 mag_packet.microseconds = packet["microSeconds"]
-
                 mag_packet.is_compensated_for_hard_iron = packet["status.isCompensatedForHardIron"]
                 mag_packet.dvl_active = packet["status.dvlActive"]
                 mag_packet.dvl_acoustics_active = packet["status.dvlAcousticsActive"]
                 mag_packet.dvl_transmitter_active = packet["status.dvlTransmitterActive"]
-
                 mag_packet.magnetometer_x = packet["magnetometer.x"]
                 mag_packet.magnetometer_y = packet["magnetometer.y"]
                 mag_packet.magnetometer_z = packet["magnetometer.z"]
 
                 try:
                     self.mag_publisher.publish(mag_packet)
+
+                    # Publish standard sensor_msgs/MagneticField
+                    mag_msg = MagneticField()
+                    mag_msg.header.stamp = ros_timestamp
+                    mag_msg.header.frame_id = self.frame_id
+                    mag_msg.magnetic_field.x = packet["magnetometer.x"]
+                    mag_msg.magnetic_field.y = packet["magnetometer.y"]
+                    mag_msg.magnetic_field.z = packet["magnetometer.z"]
+                    mag_msg.magnetic_field_covariance[0] = 0.01
+                    mag_msg.magnetic_field_covariance[4] = 0.01
+                    mag_msg.magnetic_field_covariance[8] = 0.01
+                    self.mag_common_publisher.publish(mag_msg)
+
                 except RCLError:
                     pass
                 except Exception as e:
@@ -376,13 +535,10 @@ class NucleusNode(Node):
             elif packet["id"] == 0xB4:
 
                 bottom_track_packet = BottomTrack()
-
-                bottom_track_packet.system_timestamp = system_timestamp.to_msg()
-
+                bottom_track_packet.system_timestamp = ros_timestamp
                 bottom_track_packet.posix_time = packet["flags.posixTime"]
                 bottom_track_packet.timestamp = packet["timeStamp"]
                 bottom_track_packet.microseconds = packet["microSeconds"]
-
                 bottom_track_packet.beam_1_velocity_valid = packet["status.beam1VelocityValid"]
                 bottom_track_packet.beam_2_velocity_valid = packet["status.beam2VelocityValid"]
                 bottom_track_packet.beam_3_velocity_valid = packet["status.beam3VelocityValid"]
@@ -398,7 +554,6 @@ class NucleusNode(Node):
                 bottom_track_packet.x_fom_valid = packet["status.xFomValid"]
                 bottom_track_packet.y_fom_valid = packet["status.yFomValid"]
                 bottom_track_packet.z_fom_valid = packet["status.zFomValid"]
-
                 bottom_track_packet.serial_number = packet["serialNumber"]
                 bottom_track_packet.sound_speed = packet["soundSpeed"]
                 bottom_track_packet.temperature = packet["temperature"]
@@ -429,21 +584,40 @@ class NucleusNode(Node):
 
                 try:
                     self.bottom_track_publisher.publish(bottom_track_packet)
+
+                    if packet["status.xVelocityValid"]:
+                        vel_msg = Vector3Stamped()
+                        vel_msg.header.stamp = ros_timestamp
+                        vel_msg.header.frame_id = self.frame_id
+                        vel_msg.vector.x = packet["velocityX"]
+                        vel_msg.vector.y = packet["velocityY"]
+                        vel_msg.vector.z = packet["velocityZ"]
+                        self.bottom_track_velocity_publisher.publish(vel_msg)
+                    
+                    temp_msg = Temperature()
+                    temp_msg.header.stamp = ros_timestamp
+                    temp_msg.header.frame_id = self.frame_id
+                    temp_msg.temperature = packet["temperature"]
+                    self.temperature_publisher.publish(temp_msg)
+
+                    pressure_msg = FluidPressure()
+                    pressure_msg.header.stamp = ros_timestamp
+                    pressure_msg.header.frame_id = self.frame_id
+                    pressure_msg.fluid_pressure = packet["pressure"]
+                    self.pressure_publisher.publish(pressure_msg)
+
                 except RCLError:
                     pass
                 except Exception as e:
-                    self.get_logger().error(f"Failed to publish Bottom Track packet: {e}")
+                    self.get_logger().error(f"Failed to publish Bottom Track derived packets: {e}")
 
             elif packet["id"] == 0xBE:
 
                 water_track_packet = WaterTrack()
-
-                water_track_packet.system_timestamp = system_timestamp.to_msg()
-
+                water_track_packet.system_timestamp = ros_timestamp
                 water_track_packet.posix_time = packet["flags.posixTime"]
                 water_track_packet.timestamp = packet["timeStamp"]
                 water_track_packet.microseconds = packet["microSeconds"]
-
                 water_track_packet.beam_1_velocity_valid = packet["status.beam1VelocityValid"]
                 water_track_packet.beam_2_velocity_valid = packet["status.beam2VelocityValid"]
                 water_track_packet.beam_3_velocity_valid = packet["status.beam3VelocityValid"]
@@ -459,7 +633,6 @@ class NucleusNode(Node):
                 water_track_packet.x_fom_valid = packet["status.xFomValid"]
                 water_track_packet.y_fom_valid = packet["status.yFomValid"]
                 water_track_packet.z_fom_valid = packet["status.zFomValid"]
-
                 water_track_packet.serial_number = packet["serialNumber"]
                 water_track_packet.sound_speed = packet["soundSpeed"]
                 water_track_packet.temperature = packet["temperature"]
@@ -490,6 +663,16 @@ class NucleusNode(Node):
 
                 try:
                     self.water_track_publisher.publish(water_track_packet)
+
+                    if packet["status.xVelocityValid"]:
+                        vel_msg = Vector3Stamped()
+                        vel_msg.header.stamp = ros_timestamp
+                        vel_msg.header.frame_id = self.frame_id
+                        vel_msg.vector.x = packet["velocityX"]
+                        vel_msg.vector.y = packet["velocityY"]
+                        vel_msg.vector.z = packet["velocityZ"]
+                        self.water_track_velocity_publisher.publish(vel_msg)
+
                 except RCLError:
                     pass
                 except Exception as e:
@@ -498,18 +681,14 @@ class NucleusNode(Node):
             elif packet["id"] == 0xAA:
 
                 altimeter_packet = Altimeter()
-
-                altimeter_packet.system_timestamp = system_timestamp.to_msg()
-
+                altimeter_packet.system_timestamp = ros_timestamp
                 altimeter_packet.posix_time = packet["flags.posixTime"]
                 altimeter_packet.timestamp = packet["timeStamp"]
                 altimeter_packet.microseconds = packet["microSeconds"]
-
                 altimeter_packet.altimeter_distance_valid = packet["status.altimeterDistanceValid"]
                 altimeter_packet.altimeter_quality_valid = packet["status.altimeterQualityValid"]
                 altimeter_packet.pressure_valid = packet["status.pressureValid"]
                 altimeter_packet.temperature_valid = packet["status.temperatureValid"]
-
                 altimeter_packet.serial_number = packet["serialNumber"]
                 altimeter_packet.sound_speed = packet["soundSpeed"]
                 altimeter_packet.temperature = packet["temperature"]
@@ -519,21 +698,38 @@ class NucleusNode(Node):
 
                 try:
                     self.altimeter_publisher.publish(altimeter_packet)
+
+                    if packet["status.altimeterDistanceValid"]:
+                        alt_msg = Float32()
+                        alt_msg.data = packet["altimeterDistance"]
+                        self.altimeter_publisher.publish(alt_msg)
+                    
+                    if packet["status.pressureValid"]:
+                        pressure_msg = FluidPressure()
+                        pressure_msg.header.stamp = ros_timestamp
+                        pressure_msg.header.frame_id = self.frame_id
+                        pressure_msg.fluid_pressure = packet["pressure"]
+                        self.pressure_publisher.publish(pressure_msg)
+
+                    if packet["status.temperatureValid"]:
+                        temp_msg = Temperature()
+                        temp_msg.header.stamp = ros_timestamp
+                        temp_msg.header.frame_id = self.frame_id
+                        temp_msg.temperature = packet["temperature"]
+                        self.temperature_publisher.publish(temp_msg)
+
                 except RCLError:
                     pass
                 except Exception as e:
-                    self.get_logger().error(f"Failed to publish Altimeter packet: {e}")
+                    self.get_logger().error(f"Failed to publish Altimeter derived packets: {e}")
 
             elif packet["id"] == 0xC0:
 
                 current_profile_packet = CurrentProfile()
-
-                current_profile_packet.system_timestamp = system_timestamp.to_msg()
-
+                current_profile_packet.system_timestamp = ros_timestamp
                 current_profile_packet.posix_time = packet["flags.posixTime"]
                 current_profile_packet.timestamp = packet["timeStamp"]
                 current_profile_packet.microseconds = packet["microSeconds"]
-
                 current_profile_packet.serial_number = packet["serialNumber"]
                 current_profile_packet.sound_velocity = packet["soundVelocity"]
                 current_profile_packet.temperature = packet["temperature"]
@@ -542,21 +738,16 @@ class NucleusNode(Node):
                 current_profile_packet.blanking = packet["blanking"]
                 current_profile_packet.number_of_cells = packet["numberOfCells"]
                 current_profile_packet.ambiguity_velocity = packet["ambiguityVelocity"]
-
                 velocity_data = list()
                 amplitude_data = list()
                 correlation_data = list()
-
                 for key in packet.keys():
                     if "velocityData" in key:
                         velocity_data.append(packet[key])
-
                     elif "amplitudeData" in key:
                         amplitude_data.append(packet[key])
-
                     elif "correlationData" in key:
                         correlation_data.append(packet[key])
-
                 current_profile_packet.velocity_data = velocity_data
                 current_profile_packet.amplitude_data = amplitude_data
                 current_profile_packet.correlation_data = correlation_data
@@ -571,15 +762,11 @@ class NucleusNode(Node):
             elif packet["id"] == 0x8B:
 
                 field_calibration_packet = FieldCalibration()
-
-                field_calibration_packet.system_timestamp = system_timestamp.to_msg()
-
+                field_calibration_packet.system_timestamp = ros_timestamp
                 field_calibration_packet.posix_time = packet["flags.posixTime"]
                 field_calibration_packet.timestamp = packet["timeStamp"]
                 field_calibration_packet.microseconds = packet["microSeconds"]
-
                 field_calibration_packet.points_used_in_estimation = packet["status.pointsUsedInEstimation"]
-
                 field_calibration_packet.hard_iron_x = packet["hardIron.x"]
                 field_calibration_packet.hard_iron_y = packet["hardIron.y"]
                 field_calibration_packet.hard_iron_z = packet["hardIron.z"]

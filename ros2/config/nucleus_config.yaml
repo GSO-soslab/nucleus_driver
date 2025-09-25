@@ -26,6 +26,9 @@ nucleus_node:
     # A list of commands to be sent to the sensor after connecting.
     # These are only sent if auto_connect is true.
     # Commands are sent in order.
+    # Note: The command strings should NOT be wrapped in an extra layer of quotes.
+    # The single quotes used here are for YAML syntax; they are not part of the command itself.
+    # For example, 'SETIMU,DS="ON"' is sent as SETIMU,DS="ON"
     sensor_configs:
       # IMU
       - 'SETIMU,DS="ON"'
@@ -41,3 +44,19 @@ nucleus_node:
       - 'SETMISSION,RANGE=44'
       # Trigger and Frequency
       - 'SETTRIG,SRC="INTERNAL",FREQ=3.5,ALTI=3,CP=9'
+
+    # sensor_configs:
+    #   # IMU
+    #   - "'SETIMU,DS=\"ON\"'"
+    #   # AHRS (Modes: 0 - Fixed hard iron / soft iron, 1 - cont. Hard iron estimation, 2 - cont. Hard and soft iron estimation)
+    #   - "'SETAHRS,FREQ=10,MODE=2'"
+    #   # Nav
+    #   - "'SETNAV,DS=\"OFF\"'"
+    #   # Bottom Track
+    #   - "'SETBT,MODE=\"AUTO\",WT=\"ON\"'"
+    #   # Water Track
+    #   - "'SETWT,MODE=\"ESTCUR\"'"
+    #   # Mission (50m-2Hz, 49m-3Hz, 44m-3.5Hz, 36m-4Hz, 30m-4.5Hz, 25m-5Hz, 21m-5.5Hz, 18m-6Hz, 15m-6.5Hz, 13m-7Hz, 11m-7.5Hz, <=9m-8Hz)
+    #   - "'SETMISSION,RANGE=44'"
+    #   # Trigger and Frequency
+    #   - "'SETTRIG,SRC=\"INTERNAL\",FREQ=3.5,ALTI=3,CP=9'"

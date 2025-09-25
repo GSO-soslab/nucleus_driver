@@ -126,13 +126,26 @@ class NucleusNode(Node):
                 # Send configuration commands
                 if self._sensor_configs:
                     self.get_logger().info("Sending configuration commands...")
+                    all_configs_ok = True
                     for cmd in self._sensor_configs:
                         reply_bytes = self.nucleus_driver.send_command(command=cmd)
                         try:
                             reply_str = "".join(r.decode() for r in reply_bytes).strip()
-                            self.get_logger().info(f"Command '{cmd}' -> Reply: '{reply_str}'")
+                            # A successful command usually replies with 'OK'
+                            if "OK" in reply_str:
+                                self.get_logger().info(f"Command '{cmd}' -> Reply: '{reply_str}'")
+                            else:
+                                self.get_logger().warn(f"Command '{cmd}' -> Unexpected Reply: '{reply_str}'")
+                                all_configs_ok = False
                         except Exception as e:
-                            self.get_logger().error(f"Failed to decode reply for command '{cmd}': {e}")
+                            self.get_logger().error(f"Failed to decode or process reply for command '{cmd}': {e}")
+                            all_configs_ok = False
+                    
+                    if all_configs_ok:
+                        self.get_logger().info("All sensor configuration commands sent successfully.")
+                    else:
+                        self.get_logger().warn("One or more sensor configuration commands may have failed. Please check logs.")
+
 
                 # Auto-start measurement
                 if self._auto_start:

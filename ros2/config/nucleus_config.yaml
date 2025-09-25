@@ -40,4 +40,4 @@ nucleus_node:
       # Mission (50m-2Hz, 49m-3Hz, 44m-3.5Hz, 36m-4Hz, 30m-4.5Hz, 25m-5Hz, 21m-5.5Hz, 18m-6Hz, 15m-6.5Hz, 13m-7Hz, 11m-7.5Hz, <=9m-8Hz)
       - 'SETMISSION,RANGE=44'
       # Trigger and Frequency
-      - 'SETTRIG,SRC="INTERNAL",FREQ=3.5,ALTI=3,CP=7'
+      - 'SETTRIG,SRC="INTERNAL",FREQ=3.5,ALTI=3,CP=9'

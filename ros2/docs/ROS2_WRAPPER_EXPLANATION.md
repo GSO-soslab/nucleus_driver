@@ -72,15 +72,14 @@ All stamped messages use the `frame_id` specified in the `frame_id` node paramet
 
 | Topic Name                               | Message Type (`sensor_msgs`, etc.) | Description & Source Packet(s)                                                                                                    |
 | ---------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `/nucleus_node/altitude_common`          | `std_msgs/Float32`                 | Altitude/distance from the altimeter, in meters. Sourced from the `Altimeter` packet.                                             |
-| `/nucleus_node/bottom_lock_velocity_common` | `geometry_msgs/Vector3Stamped`    | Velocity relative to the seabed (bottom lock). Sourced from the `BottomTrack` packet.                                             |
-| `/nucleus_node/water_track_velocity_common` | `geometry_msgs/Vector3Stamped`    | Velocity relative to the water. Sourced from the `WaterTrack` packet.                                                             |
+| `/nucleus_node/altitude_common`          | `geometry_msgs/PointStamped`                 | Altitude/distance from the altimeter, in meters. Sourced from the `Altimeter` packet.                                             |
+| `/nucleus_node/sound_speed_common`          | `geometry_msgs/PointStamped`                 | Sound speed, in meters. Sourced from the `Altimeter` packet.                                             |
+| `/nucleus_node/bottom_lock_velocity_common` | `geometry_msgs/TwistWithCovariance`    | Velocity relative to the seabed (bottom lock). Sourced from the `BottomTrack` packet.                                             |
+| `/nucleus_node/water_track_velocity_common` | `geometry_msgs/TwistWithCovariance`    | Velocity relative to the water. Sourced from the `WaterTrack` packet.                                                             |
 | `/nucleus_node/imu_common`               | `sensor_msgs/Imu`                  | IMU data. This topic may receive partial messages. Orientation is published from `AHRS` packets. Angular velocity and linear acceleration are published from `IMU` packets. Covariance fields indicate which data is present. |
 | `/nucleus_node/magnetic_common`          | `sensor_msgs/MagneticField`        | 3-axis magnetometer readings in Tesla. Sourced from the `Magnetometer` packet.                                                    |
 | `/nucleus_node/pressure_common`          | `sensor_msgs/FluidPressure`        | Ambient fluid pressure in Pascals. Sourced from `Altimeter` and `BottomTrack` packets.                                            |
 | `/nucleus_node/temperature_common`       | `sensor_msgs/Temperature`          | Ambient temperature in Celsius. Sourced from `Altimeter` and `BottomTrack` packets.                                               |
-| `/nucleus_node/navsatfix_common`         | `sensor_msgs/NavSatFix`            | GNSS position (latitude, longitude, altitude). Sourced from the `INS` packet.                                                     |
-| `/nucleus_node/odometry_common`          | `nav_msgs/Odometry`                | Local frame odometry (position, orientation, and velocity). Sourced from the `INS` packet. `header.frame_id` is "odom" and `child_frame_id` is the configurable `frame_id`. |
 
 ### 2.4. Client and Subscriber Nodes
 

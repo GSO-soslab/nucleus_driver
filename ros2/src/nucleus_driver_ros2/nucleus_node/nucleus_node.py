@@ -26,10 +26,8 @@ from interfaces.msg import (
 )
 
 # Standard ROS2 message imports
-from std_msgs.msg import Float32
-from sensor_msgs.msg import Imu, MagneticField, FluidPressure, Temperature, NavSatFix
-from geometry_msgs.msg import Vector3Stamped
-from nav_msgs.msg import Odometry
+from sensor_msgs.msg import Imu, MagneticField, FluidPressure, Temperature
+from geometry_msgs.msg import PointStamped, TwistWithCovarianceStamped
 
 from nucleus_driver import NucleusDriver
 
@@ -40,7 +38,7 @@ class NucleusNode(Node):
         super().__init__("nucleus_node")
 
         # --- Parameter Declaration ---
-        self.declare_parameter('frame_id', 'nucleus_link')
+        self.declare_parameter('frame_id', 'nucleus_dvl')
         self.declare_parameter('connection_type', 'none')
         self.declare_parameter('tcp_ip', '')
         self.declare_parameter('tcp_password', 'nortek')
@@ -82,15 +80,14 @@ class NucleusNode(Node):
         self.mag_publisher = self.create_publisher(Magnetometer, "nucleus_node/magnetometer_packets", 100)
         
         # Publishers for standard ROS2 messages
-        self.altimeter_publisher = self.create_publisher(Float32, "nucleus_node/altimeter_common", 100)
+        self.altimeter_publisher = self.create_publisher(PointStamped, "nucleus_node/altimeter_common", 100)
+        self.sound_speed_publisher = self.create_publisher(PointStamped, "nucleus_node/sound_speed_common", 100)
         self.pressure_publisher = self.create_publisher(FluidPressure, "nucleus_node/pressure_common", 100)
         self.temperature_publisher = self.create_publisher(Temperature, "nucleus_node/temperature_common", 100)
-        self.bottom_track_velocity_publisher = self.create_publisher(Vector3Stamped, "nucleus_node/bottom_lock_velocity_common", 100)
-        self.water_track_velocity_publisher = self.create_publisher(Vector3Stamped, "nucleus_node/water_track_velocity_common", 100)
+        self.bottom_track_velocity_publisher = self.create_publisher(TwistWithCovarianceStamped, "nucleus_node/bottom_lock_velocity_common", 100)
+        self.water_track_velocity_publisher = self.create_publisher(TwistWithCovarianceStamped, "nucleus_node/water_track_velocity_common", 100)
         self.imu_common_publisher = self.create_publisher(Imu, "nucleus_node/imu_common", 100)
         self.mag_common_publisher = self.create_publisher(MagneticField, "nucleus_node/magnetic_common", 100)
-        self.navsatfix_publisher = self.create_publisher(NavSatFix, "nucleus_node/navsatfix_common", 100)
-        self.odometry_publisher = self.create_publisher(Odometry, "nucleus_node/odometry_common", 100)
 
         # This timer ensures that the auto-connect logic runs after the node is fully initialized
         self.init_timer = self.create_timer(0.1, self.initialize_sensor_connection)
@@ -320,27 +317,6 @@ class NucleusNode(Node):
                 try:
                     self.ahrs_publisher.publish(ahrs_packet)
 
-                    # Publish standard sensor_msgs/Imu with orientation
-                    imu_msg = Imu()
-                    imu_msg.header.stamp = ros_timestamp
-                    imu_msg.header.frame_id = self.frame_id
-                    
-                    imu_msg.orientation.w = packet["ahrsData.quaternionW"]
-                    imu_msg.orientation.x = packet["ahrsData.quaternionX"]
-                    imu_msg.orientation.y = packet["ahrsData.quaternionY"]
-                    imu_msg.orientation.z = packet["ahrsData.quaternionZ"]
-                    
-                    # Indicate that orientation is available
-                    imu_msg.orientation_covariance[0] = 0.01 
-                    imu_msg.orientation_covariance[4] = 0.01
-                    imu_msg.orientation_covariance[8] = 0.01
-                    
-                    # Indicate no angular velocity or linear acceleration
-                    imu_msg.angular_velocity_covariance[0] = -1.0
-                    imu_msg.linear_acceleration_covariance[0] = -1.0
-
-                    self.imu_common_publisher.publish(imu_msg)
-
                 except RCLError:
                     pass
                 except Exception as e:
@@ -399,44 +375,6 @@ class NucleusNode(Node):
 
                 try:
                     self.ins_publisher.publish(ins_packet)
-
-                    # Publish standard sensor_msgs/NavSatFix
-                    if packet["statusIns.latLonIsValid"]:
-                        nav_msg = NavSatFix()
-                        nav_msg.header.stamp = ros_timestamp
-                        nav_msg.header.frame_id = "wgs84"
-                        nav_msg.status.status = NavSatFix.STATUS_FIX
-                        nav_msg.status.service = NavSatFix.SERVICE_GPS
-                        nav_msg.latitude = packet["latitude"]
-                        nav_msg.longitude = packet["longitude"]
-                        nav_msg.altitude = packet["altitude"]
-                        variance = (packet["fomAhrs"] * packet["fomAhrs"])
-                        nav_msg.position_covariance[0] = variance
-                        nav_msg.position_covariance[4] = variance
-                        nav_msg.position_covariance[8] = variance * 4.0
-                        nav_msg.position_covariance_type = NavSatFix.COVARIANCE_TYPE_DIAGONAL_KNOWN
-                        self.navsatfix_publisher.publish(nav_msg)
-
-                    # Publish standard nav_msgs/Odometry
-                    odom_msg = Odometry()
-                    odom_msg.header.stamp = ros_timestamp
-                    odom_msg.header.frame_id = "odom"
-                    odom_msg.child_frame_id = self.frame_id
-                    odom_msg.pose.pose.position.x = packet["positionFrameX"]
-                    odom_msg.pose.pose.position.y = packet["positionFrameY"]
-                    odom_msg.pose.pose.position.z = packet["positionFrameZ"]
-                    odom_msg.pose.pose.orientation.w = packet["ahrsData.quaternionW"]
-                    odom_msg.pose.pose.orientation.x = packet["ahrsData.quaternionX"]
-                    odom_msg.pose.pose.orientation.y = packet["ahrsData.quaternionY"]
-                    odom_msg.pose.pose.orientation.z = packet["ahrsData.quaternionZ"]
-                    odom_msg.twist.twist.linear.x = packet["velocityNucleusX"]
-                    odom_msg.twist.twist.linear.y = packet["velocityNucleusY"]
-                    odom_msg.twist.twist.linear.z = packet["velocityNucleusZ"]
-                    odom_msg.twist.twist.angular.x = math.radians(packet["turnRateX"])
-                    odom_msg.twist.twist.angular.y = math.radians(packet["turnRateY"])
-                    odom_msg.twist.twist.angular.z = math.radians(packet["turnRateZ"])
-                    self.odometry_publisher.publish(odom_msg)
-
                 except RCLError:
                     pass
                 except Exception as e:
@@ -477,19 +415,13 @@ class NucleusNode(Node):
                     imu_msg.linear_acceleration.x = packet["accelerometer.x"]
                     imu_msg.linear_acceleration.y = packet["accelerometer.y"]
                     imu_msg.linear_acceleration.z = packet["accelerometer.z"]
-                    imu_msg.angular_velocity.x = math.radians(packet["gyro.x"])
-                    imu_msg.angular_velocity.y = math.radians(packet["gyro.y"])
-                    imu_msg.angular_velocity.z = math.radians(packet["gyro.z"])
+                    imu_msg.angular_velocity.x = packet["gyro.x"]
+                    imu_msg.angular_velocity.y = packet["gyro.y"]
+                    imu_msg.angular_velocity.z = packet["gyro.z"]
                     
                     # Indicate no orientation
                     imu_msg.orientation_covariance[0] = -1.0
                     
-                    imu_msg.angular_velocity_covariance[0] = 0.01
-                    imu_msg.angular_velocity_covariance[4] = 0.01
-                    imu_msg.angular_velocity_covariance[8] = 0.01
-                    imu_msg.linear_acceleration_covariance[0] = 0.01
-                    imu_msg.linear_acceleration_covariance[4] = 0.01
-                    imu_msg.linear_acceleration_covariance[8] = 0.01
                     self.imu_common_publisher.publish(imu_msg)
 
                 except RCLError:
@@ -522,9 +454,6 @@ class NucleusNode(Node):
                     mag_msg.magnetic_field.x = packet["magnetometer.x"]
                     mag_msg.magnetic_field.y = packet["magnetometer.y"]
                     mag_msg.magnetic_field.z = packet["magnetometer.z"]
-                    mag_msg.magnetic_field_covariance[0] = 0.01
-                    mag_msg.magnetic_field_covariance[4] = 0.01
-                    mag_msg.magnetic_field_covariance[8] = 0.01
                     self.mag_common_publisher.publish(mag_msg)
 
                 except RCLError:
@@ -585,26 +514,18 @@ class NucleusNode(Node):
                 try:
                     self.bottom_track_publisher.publish(bottom_track_packet)
 
-                    if packet["status.xVelocityValid"]:
-                        vel_msg = Vector3Stamped()
+                    if packet["status.xVelocityValid"] and packet["status.yVelocityValid"] and packet["status.zVelocityValid"]:
+                        vel_msg = TwistWithCovarianceStamped()
                         vel_msg.header.stamp = ros_timestamp
                         vel_msg.header.frame_id = self.frame_id
-                        vel_msg.vector.x = packet["velocityX"]
-                        vel_msg.vector.y = packet["velocityY"]
-                        vel_msg.vector.z = packet["velocityZ"]
-                        self.bottom_track_velocity_publisher.publish(vel_msg)
-                    
-                    temp_msg = Temperature()
-                    temp_msg.header.stamp = ros_timestamp
-                    temp_msg.header.frame_id = self.frame_id
-                    temp_msg.temperature = packet["temperature"]
-                    self.temperature_publisher.publish(temp_msg)
+                        vel_msg.twist.twist.linear.x = packet["velocityX"]
+                        vel_msg.twist.twist.linear.y = packet["velocityY"]
+                        vel_msg.twist.twist.linear.z = packet["velocityZ"]
+                        vel_msg.twist.covariance[0] = packet["fomX"]
+                        vel_msg.twist.covariance[7] = packet["fomY"]
+                        vel_msg.twist.covariance[14] = packet["fomZ"]
 
-                    pressure_msg = FluidPressure()
-                    pressure_msg.header.stamp = ros_timestamp
-                    pressure_msg.header.frame_id = self.frame_id
-                    pressure_msg.fluid_pressure = packet["pressure"]
-                    self.pressure_publisher.publish(pressure_msg)
+                        self.bottom_track_velocity_publisher.publish(vel_msg)
 
                 except RCLError:
                     pass
@@ -664,13 +585,16 @@ class NucleusNode(Node):
                 try:
                     self.water_track_publisher.publish(water_track_packet)
 
-                    if packet["status.xVelocityValid"]:
-                        vel_msg = Vector3Stamped()
+                    if packet["status.xVelocityValid"] and packet["status.yVelocityValid"] and packet["status.zVelocityValid"]:
+                        vel_msg = TwistWithCovarianceStamped()
                         vel_msg.header.stamp = ros_timestamp
                         vel_msg.header.frame_id = self.frame_id
-                        vel_msg.vector.x = packet["velocityX"]
-                        vel_msg.vector.y = packet["velocityY"]
-                        vel_msg.vector.z = packet["velocityZ"]
+                        vel_msg.twist.twist.linear.x = packet["velocityX"]
+                        vel_msg.twist.twist.linear.y = packet["velocityY"]
+                        vel_msg.twist.twist.linear.z = packet["velocityZ"]
+                        vel_msg.twist.covariance[0] = packet["fomX"]
+                        vel_msg.twist.covariance[7] = packet["fomY"]
+                        vel_msg.twist.covariance[14] = packet["fomZ"]
                         self.water_track_velocity_publisher.publish(vel_msg)
 
                 except RCLError:
@@ -700,8 +624,12 @@ class NucleusNode(Node):
                     self.altimeter_publisher.publish(altimeter_packet)
 
                     if packet["status.altimeterDistanceValid"]:
-                        alt_msg = Float32()
-                        alt_msg.data = packet["altimeterDistance"]
+                        alt_msg = PointStamped()
+                        alt_msg.header.stamp = ros_timestamp
+                        alt_msg.header.frame_id = self.frame_id
+                        alt_msg.point.x = 0.0
+                        alt_msg.point.y = 0.0
+                        alt_msg.point.z = packet["altimeterDistance"]
                         self.altimeter_publisher.publish(alt_msg)
                     
                     if packet["status.pressureValid"]:
@@ -717,6 +645,12 @@ class NucleusNode(Node):
                         temp_msg.header.frame_id = self.frame_id
                         temp_msg.temperature = packet["temperature"]
                         self.temperature_publisher.publish(temp_msg)
+                    
+                    sound_speed_mgs = PointStamped()
+                    sound_speed_mgs.header.stamp = ros_timestamp
+                    sound_speed_mgs.header.frame_id = self.frame_id
+                    sound_speed_mgs.point.x = packet['soundSpeed']
+                    self.sound_speed_publisher.publish(sound_speed_mgs)
 
                 except RCLError:
                     pass
@@ -754,6 +688,7 @@ class NucleusNode(Node):
 
                 try:
                     self.current_profile_publisher.publish(current_profile_packet)
+
                 except RCLError:
                     pass
                 except Exception as e:

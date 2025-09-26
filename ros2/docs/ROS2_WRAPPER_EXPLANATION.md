@@ -119,6 +119,7 @@ graph TD
                 direction LR
                 ServiceServers[Service Servers] -- Calls --> Driver;
                 PacketThread[Packet Handling Thread] -- Reads from --> Driver;
+                Driver -- Sends --> PacketThread[Packet Handling Thread];
                 Driver(nucleus_driver<br>Python Library);
                 PacketThread -- Publishes to --> Publishers[ROS2 Publishers];
             end

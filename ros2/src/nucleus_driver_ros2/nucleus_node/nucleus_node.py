@@ -1,4 +1,5 @@
 import rclpy
+import rcl_interfaces
 from rclpy.node import Node
 from threading import Thread
 from rclpy._rclpy_pybind11 import RCLError
@@ -26,9 +27,10 @@ from interfaces.msg import (
 )
 
 # Standard ROS2 message imports
+from std_msgs.msg import Float32
 from sensor_msgs.msg import Imu, MagneticField, FluidPressure, Temperature
 from geometry_msgs.msg import PointStamped, TwistWithCovarianceStamped
-
+from nav_msgs.msg import Odometry
 from nucleus_driver import NucleusDriver
 
 
@@ -45,7 +47,8 @@ class NucleusNode(Node):
         self.declare_parameter('serial_port', '')
         self.declare_parameter('auto_connect', False)
         self.declare_parameter('auto_start', False)
-        self.declare_parameter('sensor_configs', [])
+        self.declare_parameter('sensor_configs', rcl_interfaces.msg.ParameterValue(type=rcl_interfaces.msg.ParameterType.PARAMETER_STRING_ARRAY))
+        self.declare_parameter('fluid_density', 1000.0)
 
         # --- Get Parameters ---
         self.frame_id = self.get_parameter('frame_id').get_parameter_value().string_value
@@ -56,8 +59,7 @@ class NucleusNode(Node):
         self._auto_connect = self.get_parameter('auto_connect').get_parameter_value().bool_value
         self._auto_start = self.get_parameter('auto_start').get_parameter_value().bool_value
         self._sensor_configs = self.get_parameter('sensor_configs').get_parameter_value().string_array_value
-        
-        self.get_logger().info(f"Using frame_id '{self.frame_id}' for standard messages.")
+        self._fluid_density = self.get_parameter('fluid_density').value
 
         self.nucleus_driver = NucleusDriver()
 
@@ -80,9 +82,11 @@ class NucleusNode(Node):
         self.mag_publisher = self.create_publisher(Magnetometer, "nucleus_node/magnetometer_packets", 100)
         
         # Publishers for standard ROS2 messages
-        self.altimeter_publisher = self.create_publisher(PointStamped, "nucleus_node/altimeter_common", 100)
-        self.sound_speed_publisher = self.create_publisher(PointStamped, "nucleus_node/sound_speed_common", 100)
+        self.altimeter_common_publisher = self.create_publisher(PointStamped, "nucleus_node/altimeter_common", 100)
+        self.sound_speed_publisher = self.create_publisher(Float32, "nucleus_node/sound_speed_common", 100)
         self.pressure_publisher = self.create_publisher(FluidPressure, "nucleus_node/pressure_common", 100)
+        self.depth_publisher = self.create_publisher(Odometry, "nucleus_node/depth_odometry_common", 100)
+
         self.temperature_publisher = self.create_publisher(Temperature, "nucleus_node/temperature_common", 100)
         self.bottom_track_velocity_publisher = self.create_publisher(TwistWithCovarianceStamped, "nucleus_node/bottom_lock_velocity_common", 100)
         self.water_track_velocity_publisher = self.create_publisher(TwistWithCovarianceStamped, "nucleus_node/water_track_velocity_common", 100)
@@ -522,7 +526,10 @@ class NucleusNode(Node):
                 bottom_track_packet.fom_y = packet["fomY"]
                 bottom_track_packet.fom_z = packet["fomZ"]
                 bottom_track_packet.dt_xyz = packet["dtXYZ"]
-                bottom_track_packet.time_vel_xyz = packet["timeVelXYZ"]
+                try:
+                    bottom_track_packet.time_vel_xyz = packet["timeVelXYZ"]
+                except KeyError:
+                    bottom_track_packet.time_vel_xyz = 0.0
 
                 try:
                     self.bottom_track_publisher.publish(bottom_track_packet)
@@ -593,7 +600,10 @@ class NucleusNode(Node):
                 water_track_packet.fom_y = packet["fomY"]
                 water_track_packet.fom_z = packet["fomZ"]
                 water_track_packet.dt_xyz = packet["dtXYZ"]
-                water_track_packet.time_vel_xyz = packet["timeVelXYZ"]
+                try:
+                    water_track_packet.time_vel_xyz = packet["timeVelXYZ"]
+                except KeyError:
+                    water_track_packet.time_vel_xyz = 0.0
 
                 try:
                     self.water_track_publisher.publish(water_track_packet)
@@ -643,7 +653,7 @@ class NucleusNode(Node):
                         alt_msg.point.x = 0.0
                         alt_msg.point.y = 0.0
                         alt_msg.point.z = packet["altimeterDistance"]
-                        self.altimeter_publisher.publish(alt_msg)
+                        self.altimeter_common_publisher.publish(alt_msg)
                     
                     if packet["status.pressureValid"]:
                         pressure_msg = FluidPressure()
@@ -652,6 +662,16 @@ class NucleusNode(Node):
                         pressure_msg.fluid_pressure = packet["pressure"]
                         self.pressure_publisher.publish(pressure_msg)
 
+                        depth_msg = Odometry()
+                        depth_msg.header.stamp = ros_timestamp
+                        depth_msg.header.frame_id = self.frame_id
+                        # convert the pressure (Bar) to depth (m)
+                        depth_converted = (packet["pressure"] * 100000.0) / (self._fluid_density * 9.81)
+                        depth_msg.pose.pose.position.x = 0.0
+                        depth_msg.pose.pose.position.y = 0.0
+                        depth_msg.pose.pose.position.z = -depth_converted
+                        self.depth_publisher.publish(depth_msg)
+
                     if packet["status.temperatureValid"]:
                         temp_msg = Temperature()
                         temp_msg.header.stamp = ros_timestamp
@@ -659,10 +679,8 @@ class NucleusNode(Node):
                         temp_msg.temperature = packet["temperature"]
                         self.temperature_publisher.publish(temp_msg)
                     
-                    sound_speed_mgs = PointStamped()
-                    sound_speed_mgs.header.stamp = ros_timestamp
-                    sound_speed_mgs.header.frame_id = self.frame_id
-                    sound_speed_mgs.point.x = packet['soundSpeed']
+                    sound_speed_mgs = Float32()
+                    sound_speed_mgs.data = packet['soundSpeed']
                     self.sound_speed_publisher.publish(sound_speed_mgs)
 
                 except RCLError:

@@ -118,7 +118,7 @@ graph TD
             subgraph "nucleus_node"
                 direction LR
                 ServiceServers[Service Servers] -- Calls --> Driver;
-                PacketThread[Packet Handling Thread] -- Reads from --> Driver;
+                PacketThread[Packet Handling Thread] <-- Reads from -- Driver;
                 Driver(nucleus_driver<br>Python Library);
                 PacketThread -- Publishes to --> Publishers[ROS2 Publishers];
             end
@@ -151,9 +151,9 @@ sequenceDiagram
     participant Device as Nucleus Hardware
     participant SubscriberNode as ROS2 Subscriber Node
 
-    User->>ClientNode: ros2 run ... connect_serial ...
-    ClientNode->>NucleusNode: Call /connect_serial service
-    NucleusNode->>NucleusDriver: connect(port=...)
+    User->>ClientNode: ros2 run ... connect_serial/connect_tcp ...
+    ClientNode->>NucleusNode: Call connect_serial/connect_tcp service
+    NucleusNode->>NucleusDriver: connect(port=... / ip=...)
     NucleusDriver->>Device: Establish serial connection
     Device-->>NucleusDriver: Connection ACK
     NucleusDriver-->>NucleusNode: return True

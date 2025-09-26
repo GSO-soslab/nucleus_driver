@@ -118,7 +118,7 @@ graph TD
             subgraph "nucleus_node"
                 direction LR
                 ServiceServers[Service Servers] -- Calls --> Driver;
-                PacketThread[Packet Handling Thread] <-- Reads from -- Driver;
+                PacketThread[Packet Handling Thread] -- Reads from --> Driver;
                 Driver(nucleus_driver<br>Python Library);
                 PacketThread -- Publishes to --> Publishers[ROS2 Publishers];
             end

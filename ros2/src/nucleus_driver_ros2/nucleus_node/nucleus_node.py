@@ -71,27 +71,31 @@ class NucleusNode(Node):
         self.stop_service = self.create_service(Stop, "nucleus_node/stop", self.stop_callback)
         self.command_service = self.create_service(Command, "nucleus_node/command", self.command_callback)
 
-        self.ahrs_publisher = self.create_publisher(AHRS, "nucleus_node/ahrs_packets", 100)
-        self.altimeter_publisher = self.create_publisher(Altimeter, "nucleus_node/altimeter_packets", 100)
-        self.bottom_track_publisher = self.create_publisher(BottomTrack, "nucleus_node/bottom_track_packets", 100)
-        self.water_track_publisher = self.create_publisher(WaterTrack, "nucleus_node/water_track_packets", 100)
-        self.current_profile_publisher = self.create_publisher(CurrentProfile, "nucleus_node/current_profile_packets", 100)
-        self.field_calibration_publisher = self.create_publisher(FieldCalibration, "nucleus_node/field_calibration_packets", 100)
-        self.imu_publisher = self.create_publisher(IMU, "nucleus_node/imu_packets", 100)
-        self.ins_publisher = self.create_publisher(INS, "nucleus_node/ins_packets", 100)
-        self.mag_publisher = self.create_publisher(Magnetometer, "nucleus_node/magnetometer_packets", 100)
+        self.ahrs_publisher = self.create_publisher(AHRS, "nucleus_node/ahrs_packets", 10)
+        self.altimeter_publisher = self.create_publisher(Altimeter, "nucleus_node/altimeter_packets", 10)
+        self.bottom_track_publisher = self.create_publisher(BottomTrack, "nucleus_node/bottom_track_packets", 10)
+        self.water_track_publisher = self.create_publisher(WaterTrack, "nucleus_node/water_track_packets", 10)
+        self.current_profile_publisher = self.create_publisher(CurrentProfile, "nucleus_node/current_profile_packets", 10)
+        self.field_calibration_publisher = self.create_publisher(FieldCalibration, "nucleus_node/field_calibration_packets", 10)
+        self.imu_publisher = self.create_publisher(IMU, "nucleus_node/imu_packets", 10)
+        self.ins_publisher = self.create_publisher(INS, "nucleus_node/ins_packets", 10)
+        self.mag_publisher = self.create_publisher(Magnetometer, "nucleus_node/magnetometer_packets", 10)
         
         # Publishers for standard ROS2 messages
-        self.altimeter_common_publisher = self.create_publisher(PointStamped, "nucleus_node/altimeter_common", 100)
-        self.sound_speed_publisher = self.create_publisher(Float32, "nucleus_node/sound_speed_common", 100)
-        self.pressure_publisher = self.create_publisher(FluidPressure, "nucleus_node/pressure_common", 100)
-        self.depth_publisher = self.create_publisher(Odometry, "nucleus_node/depth_odometry_common", 100)
+        self.altimeter_common_publisher = self.create_publisher(PointStamped, "nucleus_node/altimeter_common", 10)
+        self.altimeter_beam1_common_publisher = self.create_publisher(PointStamped, "nucleus_node/altimeter_beam1_common", 10)
+        self.altimeter_beam2_common_publisher = self.create_publisher(PointStamped, "nucleus_node/altimeter_beam2_common", 10)
+        self.altimeter_beam3_common_publisher = self.create_publisher(PointStamped, "nucleus_node/altimeter_beam3_common", 10)
 
-        self.temperature_publisher = self.create_publisher(Temperature, "nucleus_node/temperature_common", 100)
-        self.bottom_track_velocity_publisher = self.create_publisher(TwistWithCovarianceStamped, "nucleus_node/bottom_lock_velocity_common", 100)
-        self.water_track_velocity_publisher = self.create_publisher(TwistWithCovarianceStamped, "nucleus_node/water_track_velocity_common", 100)
-        self.imu_common_publisher = self.create_publisher(Imu, "nucleus_node/imu_common", 100)
-        self.mag_common_publisher = self.create_publisher(MagneticField, "nucleus_node/magnetic_common", 100)
+        self.sound_speed_publisher = self.create_publisher(Float32, "nucleus_node/sound_speed_common", 10)
+        self.pressure_publisher = self.create_publisher(FluidPressure, "nucleus_node/pressure_common", 10)
+        self.depth_publisher = self.create_publisher(Odometry, "nucleus_node/depth_odometry_common", 10)
+
+        self.temperature_publisher = self.create_publisher(Temperature, "nucleus_node/temperature_common", 10)
+        self.bottom_track_velocity_publisher = self.create_publisher(TwistWithCovarianceStamped, "nucleus_node/bottom_lock_velocity_common", 10)
+        self.water_track_velocity_publisher = self.create_publisher(TwistWithCovarianceStamped, "nucleus_node/water_track_velocity_common", 10)
+        self.imu_common_publisher = self.create_publisher(Imu, "nucleus_node/imu_common", 10)
+        self.mag_common_publisher = self.create_publisher(MagneticField, "nucleus_node/magnetic_common", 10)
 
         # This timer ensures that the auto-connect logic runs after the node is fully initialized
         self.init_timer = self.create_timer(0.1, self.initialize_sensor_connection)
@@ -546,6 +550,33 @@ class NucleusNode(Node):
                         vel_msg.twist.covariance[14] = packet["fomZ"]
 
                         self.bottom_track_velocity_publisher.publish(vel_msg)
+                    
+                    if packet["status.beam1DistanceValid"]:
+                        alt_b1_msg = PointStamped()
+                        alt_b1_msg.header.stamp = ros_timestamp
+                        alt_b1_msg.header.frame_id = self.frame_id
+                        alt_b1_msg.point.x = 0.0
+                        alt_b1_msg.point.y = 0.0
+                        alt_b1_msg.point.z = packet["distanceBeam1"]
+                        self.altimeter_beam1_common_publisher.publish(alt_b1_msg)
+
+                    if packet["status.beam2DistanceValid"]:
+                        alt_b2_msg = PointStamped()
+                        alt_b2_msg.header.stamp = ros_timestamp
+                        alt_b2_msg.header.frame_id = self.frame_id
+                        alt_b2_msg.point.x = 0.0
+                        alt_b2_msg.point.y = 0.0
+                        alt_b2_msg.point.z = packet["distanceBeam2"]
+                        self.altimeter_beam2_common_publisher.publish(alt_b2_msg)
+
+                    if packet["status.beam3DistanceValid"]:
+                        alt_b3_msg = PointStamped()
+                        alt_b3_msg.header.stamp = ros_timestamp
+                        alt_b3_msg.header.frame_id = self.frame_id
+                        alt_b3_msg.point.x = 0.0
+                        alt_b3_msg.point.y = 0.0
+                        alt_b3_msg.point.z = packet["distanceBeam3"]
+                        self.altimeter_beam3_common_publisher.publish(alt_b3_msg)
 
                 except RCLError:
                     pass

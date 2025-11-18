@@ -41,6 +41,7 @@ class NucleusNode(Node):
 
         # --- Parameter Declaration ---
         self.declare_parameter('frame_id', 'nucleus_dvl')
+        self.declare_parameter('world_frame_id', 'world')
         self.declare_parameter('connection_type', 'none')
         self.declare_parameter('tcp_ip', '')
         self.declare_parameter('tcp_password', 'nortek')
@@ -52,6 +53,7 @@ class NucleusNode(Node):
 
         # --- Get Parameters ---
         self.frame_id = self.get_parameter('frame_id').get_parameter_value().string_value
+        self.world_frame_id = self.get_parameter('world_frame_id').get_parameter_value().string_value
         self._connection_type = self.get_parameter('connection_type').get_parameter_value().string_value
         self._tcp_ip = self.get_parameter('tcp_ip').get_parameter_value().string_value
         self._tcp_password = self.get_parameter('tcp_password').get_parameter_value().string_value
@@ -530,10 +532,6 @@ class NucleusNode(Node):
                 bottom_track_packet.fom_y = packet["fomY"]
                 bottom_track_packet.fom_z = packet["fomZ"]
                 bottom_track_packet.dt_xyz = packet["dtXYZ"]
-                try:
-                    bottom_track_packet.time_vel_xyz = packet["timeVelXYZ"]
-                except KeyError:
-                    bottom_track_packet.time_vel_xyz = 0.0
 
                 try:
                     self.bottom_track_publisher.publish(bottom_track_packet)
@@ -631,10 +629,6 @@ class NucleusNode(Node):
                 water_track_packet.fom_y = packet["fomY"]
                 water_track_packet.fom_z = packet["fomZ"]
                 water_track_packet.dt_xyz = packet["dtXYZ"]
-                try:
-                    water_track_packet.time_vel_xyz = packet["timeVelXYZ"]
-                except KeyError:
-                    water_track_packet.time_vel_xyz = 0.0
 
                 try:
                     self.water_track_publisher.publish(water_track_packet)
@@ -695,7 +689,8 @@ class NucleusNode(Node):
 
                         depth_msg = Odometry()
                         depth_msg.header.stamp = ros_timestamp
-                        depth_msg.header.frame_id = self.frame_id
+                        depth_msg.header.frame_id = self.world_frame_id
+                        depth_msg.child_frame_id = self.frame_id
                         # convert the pressure (Bar) to depth (m)
                         depth_converted = (packet["pressure"] * 100000.0) / (self._fluid_density * 9.81)
                         depth_msg.pose.pose.position.x = 0.0

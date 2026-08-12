@@ -1,0 +1,56 @@
+/**:
+  ros__parameters:
+    # --- Connection Parameters ---
+    # Connection type can be 'tcp' or 'serial'. Set to 'none' to disable auto-connect.
+    connection_type: 'tcp'
+    
+    # --- TCP Connection Settings (used if connection_type is 'tcp') ---
+    tcp_ip: '192.168.2.103' # Replace with your Nucleus IP address
+    # tcp_password: 'nortek'
+
+    # --- Serial Connection Settings (used if connection_type is 'serial') ---
+    serial_port: '/dev/ttyUSB0'
+
+    # --- Frame ID ---
+    # The TF frame_id to be used in stamped messages
+    frame_id: 'nucleus_dvl'
+    world_frame_id: 'world'
+    
+    # --- Automatic Control ---
+    # If true, the node will attempt to connect to the sensor on startup.
+    auto_connect: true
+    # If true, the node will attempt to start measurements after a successful connection.
+    # This requires auto_connect to be true.
+    auto_start: true
+
+    # --- Sensor Configuration Commands ---
+    # A list of commands to be sent to the sensor after connecting.
+    # These are only sent if auto_connect is true.
+    # Commands are sent in order.
+    # Note: The command strings should NOT be wrapped in an extra layer of quotes.
+    # The single quotes used here are for YAML syntax; they are not part of the command itself.
+    # For example, 'SETIMU,DS="ON"' is sent as SETIMU,DS="ON"
+    sensor_configs:
+      # IMU
+      - 'SETIMU,DS="OFF"'
+      # AHRS (Modes: 0 - Fixed hard iron / soft iron, 1 - cont. Hard iron estimation, 2 - cont. Hard and soft iron estimation)
+      - 'SETAHRS,FREQ=1,MODE=0,DS="OFF"'
+      # Nav
+      - 'SETNAV,DS="OFF"'
+      # Bottom Track (Modes: AUTO, FAST_ACQ, CRAWLER)
+      # (PLMODE: [MAX, USER], default MAX)
+      # (PL(only set in USER mode): [-20, 0], default -2)
+      - 'SETBT,MODE="FAST_ACQ",WT="ON",PLMODE="MAX"'
+      # Water Track (FIXED, ESTCUR)
+      # - 'SETWT,MODE="FIXED"'
+      # Altimeter (Power level [0, -20], default 0)
+      - 'SETALTI,PL=0'
+      # Mission (50m-2Hz, 49m-3Hz, 44m-3.5Hz, 36m-4Hz, 30m-4.5Hz, 25m-5Hz, 21m-5.5Hz, 18m-6Hz, 15m-6.5Hz, 13m-7Hz, 11m-7.5Hz, <=9m-8Hz)
+      # SV (Sound Velocity [0;1700], default 1500, 0 use sensor measured sound velocity)
+      # SA (Salinity [0;50], default 35)
+      - 'SETMISSION,RANGE=25,SV=0'
+      # Trigger and Frequency
+      - 'SETTRIG,SRC="INTERNAL",FREQ=5,ALTI=5,CP=0'
+  
+    # Fluid Density
+    fluid_density: 1000.0
